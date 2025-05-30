@@ -1,0 +1,30 @@
+# Build directories
+build/
+out/
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+
+# Resource files
+resources/mmaps/
+resources/*.mmap
+resources/*.mmtile
+
+# Compiled files
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.exp
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+*.cmake
+!CMakeLists.txt 

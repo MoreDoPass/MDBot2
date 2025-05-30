@@ -1,0 +1,15 @@
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  readability-*,
+  modernize-*,
+  qt-*,
+  clang-analyzer-*,
+  cppcoreguidelines-*,
+  misc-*,
+  portability-*,
+  cert-*
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/'
+FormatStyle: file

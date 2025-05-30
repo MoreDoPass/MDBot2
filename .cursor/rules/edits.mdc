@@ -1,0 +1,12 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+    - When proposing code changes, especially for complex files or when multiple edits are needed, break them down into the smallest possible logical chunks.
+    - Prefer making a single, atomic change per `edit_file` call if the file is known to be problematic or large.
+    - After each `edit_file` call that is applied, explicitly ask the user to confirm if the change was applied correctly and if any new linter errors appeared related to the change, before proceeding with further edits to THE SAME FILE.
+    - If an edit fails or introduces new errors, try to correct it with another small, targeted edit before attempting other, unrelated changes.
+    - Do not attempt to fix more than 2-3 distinct linter errors in a single file with one `edit_file` call, unless they are very closely related (e.g., multiple instances of the same undeclared variable).
+    - For new feature implementations spanning multiple functions or sections in a file, propose changes section by section or function by function.
+
