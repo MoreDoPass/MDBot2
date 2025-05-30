@@ -27,7 +27,7 @@ std::wstring stringToWstring(const std::string& str)
     }
 }
 
-MpqManager::MpqManager() : hMpq_(nullptr)
+MpqManager::MpqManager(QObject* parent) : QObject(parent), hMpq_(nullptr)
 {
     qCDebug(logMpqManager) << "MpqManager created.";
 }

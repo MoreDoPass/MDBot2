@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <QLoggingCategory>
+#include <QObject>
 
 Q_DECLARE_LOGGING_CATEGORY(logMpqManager)
 
@@ -14,13 +15,15 @@ Q_DECLARE_LOGGING_CATEGORY(logMpqManager)
  * Предоставляет функциональность для открытия, закрытия MPQ архивов,
  * а также для чтения, извлечения файлов и проверки их наличия.
  */
-class MpqManager
+class MpqManager : public QObject
 {
+    Q_OBJECT
    public:
     /**
      * @brief Конструктор MpqManager.
+     * @param parent Родительский объект QObject для управления временем жизни.
      */
-    MpqManager();
+    explicit MpqManager(QObject* parent = nullptr);
 
     /**
      * @brief Деструктор MpqManager.
