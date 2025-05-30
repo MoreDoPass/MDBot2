@@ -33,6 +33,7 @@ set(NAV_MESH_TOOL_APP_SOURCES
     src/Core/MpqManager/MpqManager.cpp
     src/gui/MainWindow.h             # <--- Добавили MainWindow.h
     src/gui/MainWindow.cpp           # <--- Добавили MainWindow.cpp
+    src/core/WoWFiles/Parsers/WDT/WDTParser.cpp
 )
 
 # Создаем исполняемый файл приложения
@@ -191,6 +192,75 @@ else()
 endif()
 
 # --- Конец секции копирования зависимостей Qt для NavMeshTool_app ---
+
+# --- Тест для WDT Parser ---
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/TestWdtParser.cpp")
+    # Находим пакет Google Test
+    find_package(GTest CONFIG REQUIRED)
+
+    set(WDT_PARSER_TEST_SOURCES
+        tests/WDT/TestWdtParser.cpp
+        src/core/WoWFiles/Parsers/WDT/WDTParser.cpp
+    )
+    add_executable(NavMesh_WdtParserTest ${WDT_PARSER_TEST_SOURCES})
+
+    target_include_directories(NavMesh_WdtParserTest PRIVATE
+        src # Позволит #include "core/WoWFiles/Parsers/WDT/WDTParser.h"
+        ${Qt6_Core_INCLUDE_DIRS} # Для QLoggingCategory и других зависимостей Qt из WDTParser
+        # GTest::include_dirs # CMake сам должен найти заголовки GTest после find_package
+    )
+
+    # Устанавливаем определения для Unicode для теста (если нужно, Qt обычно требует)
+    target_compile_definitions(NavMesh_WdtParserTest PRIVATE UNICODE _UNICODE)
+
+    target_link_libraries(NavMesh_WdtParserTest PRIVATE
+        Qt::Core # Для QLoggingCategory и других зависимостей Qt
+        GTest::gtest
+    )
+    message(STATUS "NavMesh_WdtParserTest executable will be built and linked with Google Test.")
+
+    # Копирование тестовых данных WDT
+    set(WDT_TEST_DATA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/Data")
+    set(WDT_TEST_DATA_DEST_DIR "$<TARGET_FILE_DIR:NavMesh_WdtParserTest>/Data")
+
+    # Создаем папку Data в директории с .exe, если ее нет
+    add_custom_command(TARGET NavMesh_WdtParserTest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WDT_TEST_DATA_DEST_DIR}"
+        COMMENT "Creating Data directory for NavMesh_WdtParserTest"
+    )
+
+    # Рекурсивно получаем все файлы из исходной директории данных
+    file(GLOB_RECURSE DATA_FILES RELATIVE "${WDT_TEST_DATA_SOURCE_DIR}" CONFIGURE_DEPENDS
+        "${WDT_TEST_DATA_SOURCE_DIR}/*"
+    )
+
+    foreach(DATA_FILE_RELATIVE ${DATA_FILES})
+        set(DATA_FILE_SOURCE "${WDT_TEST_DATA_SOURCE_DIR}/${DATA_FILE_RELATIVE}")
+        set(DATA_FILE_DEST "${WDT_TEST_DATA_DEST_DIR}/${DATA_FILE_RELATIVE}")
+
+        # Создаем поддиректории в месте назначения, если они есть в относителньном пути
+        get_filename_component(DATA_FILE_DEST_PARENT_DIR "${DATA_FILE_DEST}" DIRECTORY)
+        add_custom_command(TARGET NavMesh_WdtParserTest POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${DATA_FILE_DEST_PARENT_DIR}"
+            COMMENT "Ensuring directory exists for ${DATA_FILE_RELATIVE}"
+        )
+
+        add_custom_command(TARGET NavMesh_WdtParserTest POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${DATA_FILE_SOURCE}"
+                "${DATA_FILE_DEST}"
+            COMMENT "Copying ${DATA_FILE_RELATIVE} to ${WDT_TEST_DATA_DEST_DIR}"
+        )
+    endforeach()
+
+    # Опционально: Добавление теста в CTest
+    enable_testing() # Если еще не включено
+    add_test(NAME WdtParserTest COMMAND NavMesh_WdtParserTest)
+
+else()
+    message(WARNING "WDT Parser test file not found at ${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/TestWdtParser.cpp. Test target will not be created.")
+endif()
+# --- Конец теста для WDT Parser ---
 
 # Установка основного приложения
 install(TARGETS NavMeshTool_app DESTINATION bin) # Копирует .exe в подпапку bin при установке 
