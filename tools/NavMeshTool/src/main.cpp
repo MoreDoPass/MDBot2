@@ -2,6 +2,10 @@
 #include <QApplication>
 #include <QLoggingCategory>
 
+// Подключаем MpqManager и NavMeshGenerator
+#include "core/MpqManager/MpqManager.h"
+#include "core/NavMeshGenerator/NavMeshGenerator.h"  // Убедимся, что NavMeshGenerator.h тоже подключен
+
 // Глобальная категория для main или общих логов приложения
 Q_LOGGING_CATEGORY(logNavMeshToolApp, "navmesh.app")
 
@@ -19,6 +23,40 @@ int main(int argc, char *argv[])
     );
 
     qCInfo(logNavMeshToolApp) << "NavMeshTool application starting...";
+
+    // Создаем и инициализируем MpqManager
+    MpqManager mpqManager;
+    // Путь к корневой директории WoW Sirus (без /Data)
+    std::string wowSirusPath =
+        "C:/Games/WoW Sirus/World of Warcraft Sirus";  // Используем прямой слеш для совместимости
+    bool mpqLoaded = mpqManager.openSirusInstallation(wowSirusPath);
+    if (!mpqLoaded)
+    {
+        qCCritical(logNavMeshToolApp) << "Failed to load MPQ archives from " << QString::fromStdString(wowSirusPath)
+                                      << ". NavMesh generation might not work correctly.";
+        // Можно здесь завершить приложение или продолжить с ограниченной функциональностью
+        // return 1; // Пример завершения с ошибкой
+    }
+    else
+    {
+        qCInfo(logNavMeshToolApp) << "MPQ archives loaded successfully from " << QString::fromStdString(wowSirusPath)
+                                  << ".";
+    }
+
+    // Создаем NavMeshGenerator, передавая ему ссылку на mpqManager
+    NavMesh::NavMeshGenerator navMeshGenerator(mpqManager);
+
+    // Пытаемся загрузить данные для конкретной карты
+    // Пока что adtCoords не используются, передаем пустой вектор
+    std::string mapNameToLoad = "Azeroth";
+    if (navMeshGenerator.loadMapData(mapNameToLoad, {}))
+    {
+        qCInfo(logNavMeshToolApp) << "Successfully initiated loading for map:" << QString::fromStdString(mapNameToLoad);
+    }
+    else
+    {
+        qCWarning(logNavMeshToolApp) << "Failed to load map data for:" << QString::fromStdString(mapNameToLoad);
+    }
 
     MainWindow mainWindow;
     mainWindow.show();

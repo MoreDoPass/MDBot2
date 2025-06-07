@@ -11,6 +11,9 @@ find_package(Qt6 COMPONENTS Core Widgets REQUIRED) # Добавили Widgets
 # find_package(StormLib CONFIG REQUIRED) # Не используем, подключаем вручную
 find_package(ZLIB REQUIRED)
 find_package(BZip2 REQUIRED)
+# Находим пакет Google Test (должен быть найден для сборки тестов)
+# Перемещаем это выше, чтобы было доступно для объединенной цели тестов
+find_package(GTest CONFIG REQUIRED)
 
 # --- Настройка для вручную собранной StormLib ---
 # Путь к директории с StormLib.h и другими заголовочными файлами StormLib
@@ -34,6 +37,7 @@ set(NAV_MESH_TOOL_APP_SOURCES
     src/gui/MainWindow.h             # <--- Добавили MainWindow.h
     src/gui/MainWindow.cpp           # <--- Добавили MainWindow.cpp
     src/core/WoWFiles/Parsers/WDT/WDTParser.cpp
+    src/core/NavMeshGenerator/NavMeshGenerator.cpp
 )
 
 # Создаем исполняемый файл приложения
@@ -71,8 +75,214 @@ target_link_libraries(NavMeshTool_app PRIVATE
 # Позже, когда вы добавите больше исходных файлов или зависимостей,
 # этот файл нужно будет расширить.
 
-# --- Тест для StormLib в рамках NavMeshTool ---
-# Проверяем, существует ли тестовый файл
+# === Унифицированная цель для всех тестов NavMeshTool ===
+
+# Исходные файлы основных классов, которые будут тестироваться
+set(NAVTOOL_CORE_TESTED_SOURCES
+    src/core/MpqManager/MpqManager.cpp
+    src/core/WoWFiles/Parsers/WDT/WDTParser.cpp
+    src/core/WoWFiles/Parsers/ADT/ADTParser.cpp
+    src/core/WoWFiles/Parsers/M2/M2Parser.cpp
+    src/core/WoWFiles/Parsers/WMO/WMOParser.cpp
+    # Добавьте сюда другие .cpp файлы из src/core, которые нужны тестам
+)
+
+# Исходные файлы самих тестов
+set(NAVTOOL_TEST_SOURCES
+    tests/main.cpp
+    #tests/MpqManager/TestMpqManager.cpp
+    #tests/WDT/TestWdtParser.cpp
+    #tests/StormLib/TestStormLibIntegration.cpp
+    #tests/ADT/TestADTParser.cpp
+    #tests/M2/TestM2Parser.cpp
+    tests/WMO/TestWMOParser.cpp
+    # Добавляйте сюда другие Test*.cpp файлы
+)
+
+if(GTest_FOUND)
+    message(STATUS "Google Test FOUND. Configuring NavMeshToolTests target.")
+    add_executable(NavMeshToolTests
+        ${NAVTOOL_TEST_SOURCES}
+        ${NAVTOOL_CORE_TESTED_SOURCES}
+    )
+
+    target_include_directories(NavMeshToolTests PRIVATE
+        src  # Для доступа к заголовкам типа "core/MpqManager/MpqManager.h"
+        tests # Если есть какие-то общие заголовки для тестов в папке tests
+        ${STORM_LIB_INCLUDE_DIR} # Заголовки StormLib
+        # Qt и GTest заголовки должны быть доступны через find_package
+    )
+
+    target_compile_definitions(NavMeshToolTests PRIVATE UNICODE _UNICODE)
+
+    target_link_libraries(NavMeshToolTests PRIVATE
+        Qt::Core       # Для QLoggingCategory, QCoreApplication и т.д.
+        # Qt::Widgets    # Добавлять, если тесты будут использовать GUI элементы Qt
+        GTest::gtest
+        GTest::gmock   # Если используете Google Mock
+        "${STORM_LIB_LIBRARY_FILE}" # Явно линкуем наш StormLib.lib
+        ZLIB::ZLIB
+        BZip2::BZip2
+    )
+
+    # Копирование тестовых данных WDT для NavMeshToolTests
+    set(WDT_TEST_DATA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/Data")
+    set(WDT_TEST_DATA_DEST_DIR "$<TARGET_FILE_DIR:NavMeshToolTests>/Data")
+
+    add_custom_command(TARGET NavMeshToolTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WDT_TEST_DATA_DEST_DIR}"
+        COMMENT "Creating Data directory for NavMeshToolTests WDT tests"
+    )
+
+    file(GLOB_RECURSE WDT_DATA_FILES RELATIVE "${WDT_TEST_DATA_SOURCE_DIR}" CONFIGURE_DEPENDS
+        "${WDT_TEST_DATA_SOURCE_DIR}/*"
+    )
+
+    foreach(DATA_FILE_RELATIVE ${WDT_DATA_FILES})
+        set(DATA_FILE_SOURCE "${WDT_TEST_DATA_SOURCE_DIR}/${DATA_FILE_RELATIVE}")
+        set(DATA_FILE_DEST "${WDT_TEST_DATA_DEST_DIR}/${DATA_FILE_RELATIVE}")
+        get_filename_component(DATA_FILE_DEST_PARENT_DIR "${DATA_FILE_DEST}" DIRECTORY)
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${DATA_FILE_DEST_PARENT_DIR}"
+            COMMENT "Ensuring directory exists for WDT test data ${DATA_FILE_RELATIVE}"
+        )
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${DATA_FILE_SOURCE}"
+                "${DATA_FILE_DEST}"
+            COMMENT "Copying WDT test data ${DATA_FILE_RELATIVE} to ${WDT_TEST_DATA_DEST_DIR}"
+        )
+    endforeach()
+
+    # Копирование тестовых данных MPQ для NavMeshToolTests
+    set(MPQ_TEST_DATA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/MpqManager/Data") # Путь к исходным MPQ файлам
+    set(MPQ_TEST_DATA_DEST_DIR "$<TARGET_FILE_DIR:NavMeshToolTests>/Data/MpqTestData") # Целевая папка в директории сборки (используем подпапку во избежание конфликтов имен)
+
+    add_custom_command(TARGET NavMeshToolTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${MPQ_TEST_DATA_DEST_DIR}"
+        COMMENT "Creating MpqTestData directory for NavMeshToolTests MPQ tests"
+    )
+
+    set(MPQ_TEST_FILES
+        "test.mpq"
+        "test-2.mpq"
+        "test-3.mpq"
+    )
+
+    foreach(MPQ_FILE_NAME ${MPQ_TEST_FILES})
+        set(MPQ_FILE_SOURCE "${MPQ_TEST_DATA_SOURCE_DIR}/${MPQ_FILE_NAME}")
+        set(MPQ_FILE_DEST "${MPQ_TEST_DATA_DEST_DIR}/${MPQ_FILE_NAME}")
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MPQ_FILE_SOURCE}"
+                "${MPQ_FILE_DEST}"
+            COMMENT "Copying MPQ test data ${MPQ_FILE_NAME} to ${MPQ_TEST_DATA_DEST_DIR}"
+        )
+    endforeach()
+
+    # Копирование тестовых данных ADT для NavMeshToolTests
+    set(ADT_TEST_DATA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/ADT/Data")
+    set(ADT_TEST_DATA_DEST_DIR "$<TARGET_FILE_DIR:NavMeshToolTests>/Data/ADTTestData") # Используем подпапку
+
+    add_custom_command(TARGET NavMeshToolTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${ADT_TEST_DATA_DEST_DIR}"
+        COMMENT "Creating ADTTestData directory for NavMeshToolTests ADT tests"
+    )
+
+    # Получаем все .adt файлы из исходной директории данных ADT
+    file(GLOB_RECURSE ADT_DATA_FILES RELATIVE "${ADT_TEST_DATA_SOURCE_DIR}" CONFIGURE_DEPENDS
+        "${ADT_TEST_DATA_SOURCE_DIR}/*.adt"
+    )
+
+    foreach(ADT_DATA_FILE_RELATIVE ${ADT_DATA_FILES})
+        set(ADT_DATA_FILE_SOURCE "${ADT_TEST_DATA_SOURCE_DIR}/${ADT_DATA_FILE_RELATIVE}")
+        set(ADT_DATA_FILE_DEST "${ADT_TEST_DATA_DEST_DIR}/${ADT_DATA_FILE_RELATIVE}")
+        get_filename_component(ADT_DATA_FILE_DEST_PARENT_DIR "${ADT_DATA_FILE_DEST}" DIRECTORY)
+        
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${ADT_DATA_FILE_DEST_PARENT_DIR}"
+            COMMENT "Ensuring directory exists for ADT test data ${ADT_DATA_FILE_RELATIVE}"
+        )
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${ADT_DATA_FILE_SOURCE}"
+                "${ADT_DATA_FILE_DEST}"
+            COMMENT "Copying ADT test data ${ADT_DATA_FILE_RELATIVE} to ${ADT_TEST_DATA_DEST_DIR}"
+        )
+    endforeach()
+
+    # Копирование тестовых данных M2 для NavMeshToolTests
+    set(M2_TEST_DATA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/M2/Data")
+    set(M2_TEST_DATA_DEST_DIR "$<TARGET_FILE_DIR:NavMeshToolTests>/Data/M2TestData") # Используем подпапку
+
+    add_custom_command(TARGET NavMeshToolTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${M2_TEST_DATA_DEST_DIR}"
+        COMMENT "Creating M2TestData directory for NavMeshToolTests M2 tests"
+    )
+
+    # Получаем все .m2, .M2 файлы из исходной директории данных M2
+    file(GLOB_RECURSE M2_DATA_FILES RELATIVE "${M2_TEST_DATA_SOURCE_DIR}" CONFIGURE_DEPENDS
+        "${M2_TEST_DATA_SOURCE_DIR}/*.m2"
+        "${M2_TEST_DATA_SOURCE_DIR}/*.M2"
+    )
+
+    foreach(M2_DATA_FILE_RELATIVE ${M2_DATA_FILES})
+        set(M2_DATA_FILE_SOURCE "${M2_TEST_DATA_SOURCE_DIR}/${M2_DATA_FILE_RELATIVE}")
+        set(M2_DATA_FILE_DEST "${M2_TEST_DATA_DEST_DIR}/${M2_DATA_FILE_RELATIVE}")
+        get_filename_component(M2_DATA_FILE_DEST_PARENT_DIR "${M2_DATA_FILE_DEST}" DIRECTORY)
+        
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${M2_DATA_FILE_DEST_PARENT_DIR}"
+            COMMENT "Ensuring directory exists for M2 test data ${M2_DATA_FILE_RELATIVE}"
+        )
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${M2_DATA_FILE_SOURCE}"
+                "${M2_DATA_FILE_DEST}"
+            COMMENT "Copying M2 test data ${M2_DATA_FILE_RELATIVE} to ${M2_TEST_DATA_DEST_DIR}"
+        )
+    endforeach()
+
+    # Копирование тестовых данных WMO для NavMeshToolTests
+    set(WMO_TEST_DATA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/WMO/Data")
+    set(WMO_TEST_DATA_DEST_DIR "$<TARGET_FILE_DIR:NavMeshToolTests>/Data") # Копируем в общую папку Data
+
+    add_custom_command(TARGET NavMeshToolTests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WMO_TEST_DATA_DEST_DIR}"
+        COMMENT "Creating Data directory for NavMeshToolTests WMO tests"
+    )
+
+    file(GLOB_RECURSE WMO_DATA_FILES RELATIVE "${WMO_TEST_DATA_SOURCE_DIR}" CONFIGURE_DEPENDS
+        "${WMO_TEST_DATA_SOURCE_DIR}/*"
+    )
+
+    foreach(DATA_FILE_RELATIVE ${WMO_DATA_FILES})
+        set(DATA_FILE_SOURCE "${WMO_TEST_DATA_SOURCE_DIR}/${DATA_FILE_RELATIVE}")
+        set(DATA_FILE_DEST "${WMO_TEST_DATA_DEST_DIR}/${DATA_FILE_RELATIVE}")
+        get_filename_component(DATA_FILE_DEST_PARENT_DIR "${DATA_FILE_DEST}" DIRECTORY)
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${DATA_FILE_DEST_PARENT_DIR}"
+            COMMENT "Ensuring directory exists for WMO test data ${DATA_FILE_RELATIVE}"
+        )
+        add_custom_command(TARGET NavMeshToolTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${DATA_FILE_SOURCE}"
+                "${DATA_FILE_DEST}"
+            COMMENT "Copying WMO test data ${DATA_FILE_RELATIVE} to ${WMO_TEST_DATA_DEST_DIR}"
+        )
+    endforeach()
+
+    # Включение тестов в CTest
+    enable_testing() # Включаем тестирование для проекта (если еще не включено где-то выше)
+    add_test(NAME NavMeshToolTests COMMAND NavMeshToolTests)
+    message(STATUS "NavMeshToolTests executable configured and added to CTest.")
+
+else()
+    message(WARNING "Google Test NOT FOUND. NavMeshToolTests target will not be created.")
+endif()
+
+# --- Закомментируем старые отдельные тестовые цели ---
+#[[ --- Тест для StormLib в рамках NavMeshTool ---
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test.cpp")
     set(STORM_LIB_TEST_SOURCES
         tests/stormlib_test.cpp
@@ -99,9 +309,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test.cpp")
 else()
     message(WARNING "StormLib test file not found at ${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test.cpp. Test target will not be created.")
 endif()
+]]
 
-# --- Тест для StormLib с Unicode и Qt логированием в рамках NavMeshTool ---
-# Проверяем, существует ли тестовый файл
+#[[ --- Тест для StormLib с Unicode и Qt логированием в рамках NavMeshTool ---
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test_unicode_qt.cpp")
     set(STORM_LIB_UNICODE_QT_TEST_SOURCES
         tests/stormlib_test_unicode_qt.cpp
@@ -127,76 +337,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test_unicode_qt.cpp")
 else()
     message(WARNING "StormLib Unicode Qt test file not found at ${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test_unicode_qt.cpp. Test target will not be created.")
 endif()
+]]
 
-# --- Начало секции копирования зависимостей Qt для NavMeshTool_app (vcpkg x86 - ручное копирование) ---
-
-if(WIN32) # Условие теперь только на WIN32
-    message(STATUS "NAV ਮESH_TOOL_DEPLOY: WIN32 detected. Setting up Qt deployment commands for NavMeshTool_app.")
-
-    # Пути к твоей установке vcpkg x86-windows. ПОЖАЛУЙСТА, ПРОВЕРЬ И СКОРРЕКТИРУЙ ИХ!
-    set(VCPKG_X86_INSTALLED_DIR "C:/Dev/vcpkg/installed/x86-windows") # Базовый путь
-
-    set(VCPKG_X86_BIN_DIR_DEBUG "${VCPKG_X86_INSTALLED_DIR}/debug/bin")
-    set(VCPKG_X86_PLUGINS_DIR_DEBUG "${VCPKG_X86_INSTALLED_DIR}/debug/Qt6/plugins")
-    
-    # Для Release (если понадобится, можно будет добавить аналогичные переменные)
-    # set(VCPKG_X86_BIN_DIR_RELEASE "${VCPKG_X86_INSTALLED_DIR}/bin")
-    # set(VCPKG_X86_PLUGINS_DIR_RELEASE "${VCPKG_X86_INSTALLED_DIR}/Qt6/plugins")
-
-    # 1. Копирование qwindowsd.dll для Debug для NavMeshTool_app
-    set(PLATFORM_PLUGIN_SOURCE_DEBUG "${VCPKG_X86_PLUGINS_DIR_DEBUG}/platforms/qwindowsd.dll")
-    set(PLATFORM_PLUGIN_DEST_DIR_BASE_APP "$<TARGET_FILE_DIR:NavMeshTool_app>/platforms") 
-
-    message(STATUS "NAV ਮESH_TOOL_DEPLOY: PLATFORM_PLUGIN_SOURCE_DEBUG (qwindowsd.dll) = ${PLATFORM_PLUGIN_SOURCE_DEBUG}")
-
-    if(EXISTS "${PLATFORM_PLUGIN_SOURCE_DEBUG}")
-        message(STATUS "NAV ਮESH_TOOL_DEPLOY: qwindowsd.dll (Debug) FOUND. Adding copy command for NavMeshTool_app (Debug config).")
-        add_custom_command(TARGET NavMeshTool_app POST_BUILD
-            COMMAND $<$<CONFIG:Debug>:${CMAKE_COMMAND}> -E make_directory "${PLATFORM_PLUGIN_DEST_DIR_BASE_APP}"
-            COMMAND $<$<CONFIG:Debug>:${CMAKE_COMMAND}> -E copy_if_different
-                "${PLATFORM_PLUGIN_SOURCE_DEBUG}"
-                "${PLATFORM_PLUGIN_DEST_DIR_BASE_APP}/" 
-            COMMENT "Copying qwindowsd.dll for NavMeshTool_app (Debug config)"
-            VERBATIM
-        )
-    else()
-        message(WARNING "NAV ਮESH_TOOL_DEPLOY: qwindowsd.dll (Debug) NOT FOUND at ${PLATFORM_PLUGIN_SOURCE_DEBUG}. Please check VCPKG_X86_PLUGINS_DIR_DEBUG.")
-    endif()
-
-    # 2. Копирование основных runtime библиотек Qt для Debug для NavMeshTool_app
-    set(QT_DEBUG_RUNTIME_DLLS_APP
-        "${VCPKG_X86_BIN_DIR_DEBUG}/Qt6Cored.dll"
-        "${VCPKG_X86_BIN_DIR_DEBUG}/Qt6Guid.dll"
-        "${VCPKG_X86_BIN_DIR_DEBUG}/Qt6Widgetsd.dll"
-        # Добавь другие DLL, если они понадобятся (например, Qt6OpenGLd.dll, если будешь использовать OpenGL)
-    )
-
-    message(STATUS "NAV ਮESH_TOOL_DEPLOY: Setting up runtime DLL copy commands for NavMeshTool_app (Debug config).")
-    foreach(QT_DLL_PATH_VAR ${QT_DEBUG_RUNTIME_DLLS_APP})
-        message(STATUS "NAV ਮESH_TOOL_DEPLOY: Checking DLL for NavMeshTool_app (Debug): ${QT_DLL_PATH_VAR}")
-        if(EXISTS "${QT_DLL_PATH_VAR}")
-            message(STATUS "NAV ਮESH_TOOL_DEPLOY: DLL (Debug) FOUND: ${QT_DLL_PATH_VAR}. Adding copy command for NavMeshTool_app (Debug config).")
-            add_custom_command(TARGET NavMeshTool_app POST_BUILD
-                COMMAND $<$<CONFIG:Debug>:${CMAKE_COMMAND}> -E copy_if_different
-                    "${QT_DLL_PATH_VAR}"
-                    "$<TARGET_FILE_DIR:NavMeshTool_app>/" 
-                COMMENT "Copying ${QT_DLL_PATH_VAR} for NavMeshTool_app (Debug config)"
-                VERBATIM
-            )
-        else()
-            message(WARNING "NAV ਮESH_TOOL_DEPLOY: Required Qt DLL (Debug) NOT FOUND: ${QT_DLL_PATH_VAR}. Please check VCPKG_X86_BIN_DIR_DEBUG.")
-        endif()
-    endforeach()
-else()
-    message(STATUS "NAV ਮESH_TOOL_DEPLOY: Not a WIN32 build, skipping Qt deployment commands for NavMeshTool_app.")
-endif()
-
-# --- Конец секции копирования зависимостей Qt для NavMeshTool_app ---
-
-# --- Тест для WDT Parser ---
+#[[ --- Тест для WDT Parser ---
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/TestWdtParser.cpp")
     # Находим пакет Google Test
-    find_package(GTest CONFIG REQUIRED)
+    # find_package(GTest CONFIG REQUIRED) # Уже вызван выше
 
     set(WDT_PARSER_TEST_SOURCES
         tests/WDT/TestWdtParser.cpp
@@ -260,7 +406,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/TestWdtParser.cpp")
 else()
     message(WARNING "WDT Parser test file not found at ${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/TestWdtParser.cpp. Test target will not be created.")
 endif()
-# --- Конец теста для WDT Parser ---
+]]
+# --- Конец закомментированных старых тестов ---
 
 # Установка основного приложения
 install(TARGETS NavMeshTool_app DESTINATION bin) # Копирует .exe в подпапку bin при установке 
