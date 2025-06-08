@@ -6,9 +6,10 @@
 #include <filesystem>  // Для std::filesystem::current_path
 #include <iostream>    // Для std::cout, std::cin
 #include <limits>      // Для std::numeric_limits
+#include <optional>    // Для std::optional
 
 // Вспомогательная функция для чтения файла в буфер
-static std::vector<char> readFileToBuffer(const std::string& fileNameInTestDataDir)
+static std::vector<unsigned char> readFileToBuffer(const std::string& fileNameInTestDataDir)
 {
     // Ожидаем, что тестовые данные будут в папке "Data" рядом с исполняемым файлом теста
     std::filesystem::path dataDirPath = "Data";
@@ -26,8 +27,8 @@ static std::vector<char> readFileToBuffer(const std::string& fileNameInTestDataD
     std::streamsize size = file.tellg();
     file.seekg(0, std::ios::beg);
 
-    std::vector<char> buffer(size);
-    if (!file.read(buffer.data(), size))
+    std::vector<unsigned char> buffer(size);
+    if (!file.read(reinterpret_cast<char*>(buffer.data()), size))
     {
         throw std::runtime_error("Failed to read file: " + std::filesystem::absolute(fullPath).string());
     }
@@ -39,7 +40,7 @@ class WDTParserTest : public ::testing::Test
 {
    protected:
     NavMeshTool::WDT::Parser parser;
-    NavMeshTool::WDT::WDTData wdtData;
+    // WDTData больше не является членом класса, так как parse теперь возвращает его.
 
     // Здесь можно добавить SetUp() и TearDown(), если потребуется
 };
@@ -47,22 +48,30 @@ class WDTParserTest : public ::testing::Test
 // Тест на парсинг BlackTemple.wdt
 TEST_F(WDTParserTest, ParseBlackTemple)
 {
-    std::vector<char> buffer;
+    std::vector<unsigned char> buffer;
+    const std::string mapName = "BlackTemple";
     try
     {
-        buffer = readFileToBuffer("BlackTemple.wdt");
+        buffer = readFileToBuffer(mapName + ".wdt");
     }
     catch (const std::runtime_error& e)
     {
-        FAIL() << "Failed to read BlackTemple.wdt: " << e.what();
+        FAIL() << "Failed to read " << mapName << ".wdt: " << e.what();
     }
 
-    ASSERT_FALSE(buffer.empty()) << "BlackTemple.wdt buffer is empty.";
+    ASSERT_FALSE(buffer.empty()) << mapName << ".wdt buffer is empty.";
 
-    wdtData.baseMapName = "BlackTemple";  // Устанавливаем имя базовой карты
-    bool parseResult = parser.parse(buffer.data(), buffer.size(), wdtData);
-    ASSERT_TRUE(parseResult) << "Parsing BlackTemple.wdt failed.";
-    EXPECT_EQ(wdtData.version, 18) << "MVER version mismatch for BlackTemple.wdt.";
+    // Вызываем обновленный метод parse
+    std::optional<NavMeshTool::WDT::WDTData> result = parser.parse(buffer, mapName);
+
+    // Проверяем, что парсинг прошел успешно
+    ASSERT_TRUE(result.has_value()) << "Parsing " << mapName << ".wdt failed.";
+
+    // Получаем данные
+    const NavMeshTool::WDT::WDTData& wdtData = result.value();
+
+    // Проверки остаются такими же, но теперь используют wdtData из результата
+    EXPECT_EQ(wdtData.version, 18) << "MVER version mismatch for " << mapName << ".wdt.";
     ASSERT_EQ(wdtData.mainEntries.size(), NavMeshTool::WDT::WDT_MAIN_ENTRIES_COUNT) << "MAIN entries count mismatch.";
     ASSERT_FALSE(wdtData.adtFileNames.empty())
         << "ADT file list should not be empty for " << wdtData.baseMapName << ".wdt";

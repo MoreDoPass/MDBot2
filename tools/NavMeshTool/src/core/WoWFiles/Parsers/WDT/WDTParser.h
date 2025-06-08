@@ -2,7 +2,8 @@
 
 #include <string>
 #include <vector>
-#include <cstdint>  // Для uint32_t, uint16_t и т.д.
+#include <cstdint>   // Для uint32_t, uint16_t и т.д.
+#include <optional>  // Для std::optional
 
 #include <QLoggingCategory>  // Добавляем для логирования Qt
 
@@ -81,16 +82,6 @@ struct WDTData
     {
         mainEntries.resize(64 * 64);
     }
-
-    /**
-     * @brief Парсит WDT файл из предоставленного буфера данных.
-     * @param data Указатель на начало данных WDT файла.
-     * @param size Размер данных в байтах.
-     * @param mapName Базовое имя карты (например, "Karazahn") для генерации имен ADT.
-     * @param outWDTData Структура для записи распарсенных данных.
-     * @return true, если парсинг прошел успешно и все обязательные чанки найдены, иначе false.
-     */
-    bool parse(const char* data, size_t size, const std::string& mapName, WDTData& outWDTData);
 };
 
 // --- Класс парсера ---
@@ -119,23 +110,24 @@ class Parser
 
     /**
      * @brief Парсит WDT файл из предоставленного буфера данных.
-     * @param data Указатель на начало данных WDT файла.
-     * @param size Размер данных в байтах.
-     * @param outWDTData Структура для записи распарсенных данных.
-     * @return true, если парсинг прошел успешно и все обязательные чанки найдены, иначе false.
+     * @param dataBuffer Вектор с бинарными данными WDT файла.
+     * @param mapName Базовое имя карты (например, "Karazahn") для генерации имен ADT.
+     * @return std::optional<WDTData>, содержащий распарсенные данные в случае успеха, или std::nullopt в случае ошибки.
      */
-    bool parse(const char* data, size_t size, WDTData& outWDTData);
+    std::optional<WDTData> parse(const std::vector<unsigned char>& dataBuffer, const std::string& mapName) const;
 
     // Опционально: Удобная функция для загрузки из файла
     // bool parseFromFile(const std::string& filePath, WDTData& outWDTData);
 
    private:
     // Приватные методы для парсинга отдельных чанков
-    bool parseMVER(const char*& currentPtr, size_t& remainingSize, WDTData& outWDTData);
-    bool parseMPHD(const char*& currentPtr, size_t& remainingSize, WDTData& outWDTData);
-    bool parseMAIN(const char*& currentPtr, size_t& remainingSize, WDTData& outWDTData);
-    bool parseMWMO(const char*& currentPtr, size_t& remainingSize, const ChunkHeader& mwmoHeader, WDTData& outWDTData);
-    bool parseMODF(const char*& currentPtr, size_t& remainingSize, const ChunkHeader& modfHeader, WDTData& outWDTData);
+    bool parseMVER(const unsigned char*& currentPtr, size_t& remainingSize, WDTData& outWDTData) const;
+    bool parseMPHD(const unsigned char*& currentPtr, size_t& remainingSize, WDTData& outWDTData) const;
+    bool parseMAIN(const unsigned char*& currentPtr, size_t& remainingSize, WDTData& outWDTData) const;
+    bool parseMWMO(const unsigned char*& currentPtr, size_t& remainingSize, const ChunkHeader& mwmoHeader,
+                   WDTData& outWDTData) const;
+    bool parseMODF(const unsigned char*& currentPtr, size_t& remainingSize, const ChunkHeader& modfHeader,
+                   WDTData& outWDTData) const;
 
     // Вспомогательные функции
     /**
@@ -145,7 +137,7 @@ class Parser
      * @param outHeader Структура для записи прочитанного заголовка.
      * @return true, если заголовок успешно прочитан, иначе false (например, если данных недостаточно).
      */
-    bool readChunkHeader(const char*& currentPtr, size_t& remainingSize, ChunkHeader& outHeader);
+    bool readChunkHeader(const unsigned char*& currentPtr, size_t& remainingSize, ChunkHeader& outHeader) const;
 };
 
 // Общие константы для WDT

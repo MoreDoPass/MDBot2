@@ -116,18 +116,21 @@ bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector
     qCInfo(logNavMeshGenerator) << "Successfully read WDT file" << QString::fromStdString(wdtFileName)
                                 << "into buffer, size:" << wdtBuffer.size() << "bytes.";
 
-    // Перед парсингом нового WDT, сбрасываем m_currentWdtData до состояния по умолчанию
-    // Это очистит все векторы (adtFileNames, mwmoFilenames, modfEntries) и установит значения по умолчанию.
-    m_currentWdtData = NavMeshTool::WDT::WDTData();
-    m_currentWdtData.baseMapName = targetMapDirectory;  // Устанавливаем имя карты для генерации имен ADT
-
     qCDebug(logNavMeshGenerator) << "Parsing WDT data for" << QString::fromStdString(targetMapDirectory);
-    if (!m_wdtParser.parse(reinterpret_cast<const char*>(wdtBuffer.data()), wdtBuffer.size(), m_currentWdtData))
+
+    // Вызываем новый метод парсера, который возвращает std::optional
+    auto wdtDataOpt = m_wdtParser.parse(wdtBuffer, targetMapDirectory);
+
+    // Проверяем, удалось ли распарсить данные
+    if (!wdtDataOpt)
     {
         qCCritical(logNavMeshGenerator) << "Failed to parse WDT data for map:"
                                         << QString::fromStdString(targetMapDirectory);
         return false;
     }
+
+    // Если парсинг успешен, перемещаем данные в член класса
+    m_currentWdtData = std::move(*wdtDataOpt);
 
     qCInfo(logNavMeshGenerator) << "WDT data parsed successfully for map:"
                                 << QString::fromStdString(targetMapDirectory);

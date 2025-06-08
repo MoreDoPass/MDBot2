@@ -91,11 +91,11 @@ set(NAVTOOL_CORE_TESTED_SOURCES
 set(NAVTOOL_TEST_SOURCES
     tests/main.cpp
     #tests/MpqManager/TestMpqManager.cpp
-    #tests/WDT/TestWdtParser.cpp
+    tests/WDT/TestWdtParser.cpp
     #tests/StormLib/TestStormLibIntegration.cpp
     #tests/ADT/TestADTParser.cpp
     #tests/M2/TestM2Parser.cpp
-    tests/WMO/TestWMOParser.cpp
+    #tests/WMO/TestWMOParser.cpp
     # Добавляйте сюда другие Test*.cpp файлы
 )
 

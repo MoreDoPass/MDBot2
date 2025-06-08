@@ -2,6 +2,7 @@
 
 #include <cstring>    // Для memcpy, memcmp
 #include <stdexcept>  // Для std::runtime_error (пример)
+#include <vector>     // Для std::vector
 
 #include <QDebug>  // Для qDebug, qWarning и т.д.
 
@@ -26,7 +27,7 @@ Parser::~Parser()
     qCDebug(logWdtParser) << "WDT Parser destroyed";
 }
 
-bool Parser::readChunkHeader(const char*& currentPtr, size_t& remainingSize, ChunkHeader& outHeader)
+bool Parser::readChunkHeader(const unsigned char*& currentPtr, size_t& remainingSize, ChunkHeader& outHeader) const
 {
     if (remainingSize < SIZEOF_CHUNK_HEADER)
     {
@@ -39,7 +40,7 @@ bool Parser::readChunkHeader(const char*& currentPtr, size_t& remainingSize, Chu
     return true;
 }
 
-bool Parser::parseMVER(const char*& currentPtr, size_t& remainingSize, WDTData& outWDTData)
+bool Parser::parseMVER(const unsigned char*& currentPtr, size_t& remainingSize, WDTData& outWDTData) const
 {
     if (remainingSize < sizeof(uint32_t))
     {
@@ -53,7 +54,7 @@ bool Parser::parseMVER(const char*& currentPtr, size_t& remainingSize, WDTData& 
     return true;
 }
 
-bool Parser::parseMPHD(const char*& currentPtr, size_t& remainingSize, WDTData& outWDTData)
+bool Parser::parseMPHD(const unsigned char*& currentPtr, size_t& remainingSize, WDTData& outWDTData) const
 {
     if (remainingSize < sizeof(MPHDChunk))
     {
@@ -68,7 +69,7 @@ bool Parser::parseMPHD(const char*& currentPtr, size_t& remainingSize, WDTData& 
     return true;
 }
 
-bool Parser::parseMAIN(const char*& currentPtr, size_t& remainingSize, WDTData& outWDTData)
+bool Parser::parseMAIN(const unsigned char*& currentPtr, size_t& remainingSize, WDTData& outWDTData) const
 {
     const size_t expectedMainSize = WDT_MAIN_ENTRIES_COUNT * sizeof(SMAreaInfo);
     if (remainingSize < expectedMainSize)
@@ -84,8 +85,8 @@ bool Parser::parseMAIN(const char*& currentPtr, size_t& remainingSize, WDTData& 
     return true;
 }
 
-bool Parser::parseMWMO(const char*& currentPtr, size_t& remainingSize, const ChunkHeader& mwmoHeader,
-                       WDTData& outWDTData)
+bool Parser::parseMWMO(const unsigned char*& currentPtr, size_t& remainingSize, const ChunkHeader& mwmoHeader,
+                       WDTData& outWDTData) const
 {
     if (remainingSize < mwmoHeader.size)
     {
@@ -94,23 +95,23 @@ bool Parser::parseMWMO(const char*& currentPtr, size_t& remainingSize, const Chu
         return false;
     }
 
-    const char* mwmoDataStart = currentPtr;
-    const char* mwmoDataEnd = currentPtr + mwmoHeader.size;
+    const unsigned char* mwmoDataStart = currentPtr;
+    const unsigned char* mwmoDataEnd = currentPtr + mwmoHeader.size;
 
     outWDTData.mwmoFilenames.clear();
-    const char* nameStart = mwmoDataStart;
-    for (const char* p = mwmoDataStart; p < mwmoDataEnd; ++p)
+    const char* nameStart = reinterpret_cast<const char*>(mwmoDataStart);
+    for (const unsigned char* p = mwmoDataStart; p < mwmoDataEnd; ++p)
     {
         if (*p == '\0')
         {
-            if (p > nameStart)
+            if (reinterpret_cast<const char*>(p) > nameStart)
             {
                 outWDTData.mwmoFilenames.emplace_back(nameStart);
             }
-            nameStart = p + 1;
+            nameStart = reinterpret_cast<const char*>(p + 1);
         }
     }
-    if (nameStart < mwmoDataEnd && *nameStart != '\0')
+    if (nameStart < reinterpret_cast<const char*>(mwmoDataEnd) && *nameStart != '\0')
     {
         outWDTData.mwmoFilenames.emplace_back(nameStart);
     }
@@ -121,8 +122,8 @@ bool Parser::parseMWMO(const char*& currentPtr, size_t& remainingSize, const Chu
     return true;
 }
 
-bool Parser::parseMODF(const char*& currentPtr, size_t& remainingSize, const ChunkHeader& modfHeader,
-                       WDTData& outWDTData)
+bool Parser::parseMODF(const unsigned char*& currentPtr, size_t& remainingSize, const ChunkHeader& modfHeader,
+                       WDTData& outWDTData) const
 {
     if (remainingSize < modfHeader.size)
     {
@@ -147,29 +148,22 @@ bool Parser::parseMODF(const char*& currentPtr, size_t& remainingSize, const Chu
     return true;
 }
 
-bool Parser::parse(const char* data, size_t size, WDTData& outWDTData)
+std::optional<WDTData> Parser::parse(const std::vector<unsigned char>& dataBuffer, const std::string& mapName) const
 {
-    if (!data || size == 0)
+    if (dataBuffer.empty())
     {
         qCWarning(logWdtParser) << "Parse called with no data.";
-        return false;
+        return std::nullopt;
     }
 
-    qCInfo(logWdtParser) << "Starting WDT parsing. Total size:" << size;
+    qCInfo(logWdtParser) << "Starting WDT parsing for map" << QString::fromStdString(mapName)
+                         << ". Total size:" << dataBuffer.size();
 
-    const char* currentPtr = data;
-    size_t remainingSize = size;
+    WDTData wdtData;
+    wdtData.baseMapName = mapName;
 
-    // Перед началом парсинга убедимся, что имя базовой карты установлено в outWDTData.
-    // Это должно быть сделано вызывающей стороной.
-    if (outWDTData.baseMapName.empty())
-    {
-        qCWarning(logWdtParser)
-            << "Base map name is not set in WDTData. ADT filenames might be incorrect or not generated.";
-        // Можно либо вернуть false, либо продолжить без генерации имен ADT, либо генерировать с плейсхолдером.
-        // Пока что просто выведем предупреждение и продолжим.
-    }
-    outWDTData.adtFileNames.clear();  // Очищаем список имен ADT файлов
+    const unsigned char* currentPtr = dataBuffer.data();
+    size_t remainingSize = dataBuffer.size();
 
     bool mverFound = false;
     bool mphdFound = false;
@@ -177,30 +171,30 @@ bool Parser::parse(const char* data, size_t size, WDTData& outWDTData)
 
     ChunkHeader header;
 
-    if (!readChunkHeader(currentPtr, remainingSize, header)) return false;
+    if (!readChunkHeader(currentPtr, remainingSize, header)) return std::nullopt;
     if (header.isValid("REVM"))
     {
-        if (!parseMVER(currentPtr, remainingSize, outWDTData)) return false;
+        if (!parseMVER(currentPtr, remainingSize, wdtData)) return std::nullopt;
         mverFound = true;
     }
     else
     {
         qCCritical(logWdtParser) << "First chunk is not MVER (expected REVM). Signature:"
                                  << QString::fromLatin1(header.signature, 4);
-        return false;
+        return std::nullopt;
     }
 
-    if (!readChunkHeader(currentPtr, remainingSize, header)) return false;
+    if (!readChunkHeader(currentPtr, remainingSize, header)) return std::nullopt;
     if (header.isValid("DHPM"))
     {
-        if (!parseMPHD(currentPtr, remainingSize, outWDTData)) return false;
+        if (!parseMPHD(currentPtr, remainingSize, wdtData)) return std::nullopt;
         mphdFound = true;
     }
     else
     {
         qCCritical(logWdtParser) << "Second chunk is not MPHD (expected DHPM). Signature:"
                                  << QString::fromLatin1(header.signature, 4);
-        return false;
+        return std::nullopt;
     }
 
     while (remainingSize >= SIZEOF_CHUNK_HEADER)
@@ -215,26 +209,26 @@ bool Parser::parse(const char* data, size_t size, WDTData& outWDTData)
 
         if (header.isValid("NIAM"))
         {
-            if (!parseMAIN(currentPtr, remainingSize, outWDTData)) return false;
+            if (!parseMAIN(currentPtr, remainingSize, wdtData)) return std::nullopt;
             mainFound = true;
         }
         else if (header.isValid("OMWM"))
         {
-            if (!(outWDTData.mphd.flags & 0x1))
+            if (!(wdtData.mphd.flags & 0x1))
             {
                 qCWarning(logWdtParser)
                     << "Found MWMO (OMWM) chunk, but wdt_uses_global_map_obj flag is not set in MPHD!";
             }
-            if (!parseMWMO(currentPtr, remainingSize, header, outWDTData)) return false;
+            if (!parseMWMO(currentPtr, remainingSize, header, wdtData)) return std::nullopt;
         }
         else if (header.isValid("FDOM"))
         {
-            if (!(outWDTData.mphd.flags & 0x1))
+            if (!(wdtData.mphd.flags & 0x1))
             {
                 qCWarning(logWdtParser)
                     << "Found MODF (FDOM) chunk, but wdt_uses_global_map_obj flag is not set in MPHD!";
             }
-            if (!parseMODF(currentPtr, remainingSize, header, outWDTData)) return false;
+            if (!parseMODF(currentPtr, remainingSize, header, wdtData)) return std::nullopt;
         }
         else
         {
@@ -243,7 +237,7 @@ bool Parser::parse(const char* data, size_t size, WDTData& outWDTData)
             {
                 qCWarning(logWdtParser) << "Cannot skip chunk, not enough data. Chunk size:" << header.size
                                         << "Remaining:" << remainingSize;
-                return false;
+                return std::nullopt;
             }
             currentPtr += header.size;
             remainingSize -= header.size;
@@ -254,35 +248,31 @@ bool Parser::parse(const char* data, size_t size, WDTData& outWDTData)
     {
         qCCritical(logWdtParser) << "Parsing failed: one or more mandatory chunks (MVER, MPHD, MAIN) not found."
                                  << "MVER:" << mverFound << "MPHD:" << mphdFound << "MAIN:" << mainFound;
-        return false;
+        return std::nullopt;
     }
 
     // Генерация имен ADT файлов, если MAIN чанк был найден и обработан
-    if (mainFound && !outWDTData.baseMapName.empty())
+    if (mainFound)  // baseMapName теперь всегда установлен
     {
         for (size_t i = 0; i < WDT_MAIN_ENTRIES_COUNT; ++i)
         {
-            if (outWDTData.mainEntries[i].flags & SMAREA_FLAG_HAS_ADT)
+            if (wdtData.mainEntries[i].flags & SMAREA_FLAG_HAS_ADT)
             {
                 int tileFileX = i / 64;  // Согласно README: FileX = index / 64
                 int tileFileY = i % 64;  // Согласно README: FileY = index % 64
                 // Корректный формат имени: MapName_FileY_FileX.adt
-                std::string adtName = outWDTData.baseMapName + "_" + std::to_string(tileFileY) +
+                std::string adtName = wdtData.baseMapName + "_" + std::to_string(tileFileY) +
                                       "_" +                                // Сначала FileY (index % 64)
                                       std::to_string(tileFileX) + ".adt";  // Затем FileX (index / 64)
-                outWDTData.adtFileNames.push_back(adtName);
+                wdtData.adtFileNames.push_back(adtName);
             }
         }
-        qCDebug(logWdtParser) << "Generated" << outWDTData.adtFileNames.size() << "ADT filenames for map"
-                              << QString::fromStdString(outWDTData.baseMapName);
-    }
-    else if (mainFound && outWDTData.baseMapName.empty())
-    {
-        qCWarning(logWdtParser) << "MAIN chunk found, but baseMapName is empty. Cannot generate ADT filenames.";
+        qCDebug(logWdtParser) << "Generated" << wdtData.adtFileNames.size() << "ADT filenames for map"
+                              << QString::fromStdString(wdtData.baseMapName);
     }
 
-    qCInfo(logWdtParser) << "WDT parsing finished successfully.";
-    return true;
+    qCInfo(logWdtParser) << "WDT parsing finished successfully for map" << QString::fromStdString(wdtData.baseMapName);
+    return wdtData;
 }
 
 /*
