@@ -7,7 +7,7 @@
 #include <iostream>
 
 // Helper function to write WmoGeometry to a .obj file for visualization
-void save_to_obj(const std::string& filepath, const wow_files::wmo::WmoGeometry& geometry)
+void save_to_obj(const std::string& filepath, const NavMeshTool::WMO::WmoGeometry& geometry)
 {
     std::ofstream obj_file(filepath);
     if (!obj_file)
@@ -40,7 +40,7 @@ TEST(TestWMOParser, BlackTempleGroupInfo)
     ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
 
     // Parse the WMO with our C++ parser
-    wow_files::wmo::WMOParser parser;
+    NavMeshTool::WMO::Parser parser;
     const bool parse_success = parser.parse(root_wmo_path.string());
 
     ASSERT_TRUE(parse_success) << "WMOParser failed to parse the file.";
@@ -87,7 +87,7 @@ TEST(TestWMOParser, BlackTemplePortalInfo)
 
     ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
 
-    wow_files::wmo::WMOParser parser;
+    NavMeshTool::WMO::Parser parser;
     const bool parse_success = parser.parse(root_wmo_path.string());
 
     ASSERT_TRUE(parse_success) << "WMOParser failed to parse the file.";
@@ -134,7 +134,7 @@ TEST(TestWMOParser, BlackTempleDoodadInfo)
 
     ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
 
-    wow_files::wmo::WMOParser parser;
+    NavMeshTool::WMO::Parser parser;
     const bool parse_success = parser.parse(root_wmo_path.string());
 
     ASSERT_TRUE(parse_success) << "WMOParser failed to parse the file.";
@@ -170,7 +170,7 @@ TEST(TestWMOParser, BlackTempleGroup48Header)
 
     ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
 
-    wow_files::wmo::WMOParser parser;
+    NavMeshTool::WMO::Parser parser;
     const bool parse_success = parser.parse(root_wmo_path.string());
 
     ASSERT_TRUE(parse_success) << "WMOParser failed to parse the root file.";
@@ -202,7 +202,7 @@ TEST(TestWMOParser, BlackTempleFinalGeometry)
 
     ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
 
-    wow_files::wmo::WMOParser parser;
+    NavMeshTool::WMO::Parser parser;
     const bool parse_success = parser.parse(root_wmo_path.string());
 
     ASSERT_TRUE(parse_success) << "WMOParser failed to parse the root file.";

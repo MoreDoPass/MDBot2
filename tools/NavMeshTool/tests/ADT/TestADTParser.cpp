@@ -8,6 +8,8 @@
 #include <exception>   // Для std::exception
 #include <cstdio>      // Для fflush
 
+using namespace NavMeshTool::ADT;
+
 namespace fs = std::filesystem;
 
 // Вспомогательная функция для чтения файла в буфер
@@ -97,7 +99,7 @@ TEST_F(ADTParserTest, ParseAllAdtFiles)
         ASSERT_TRUE(file.read(reinterpret_cast<char*>(buffer.data()), size))
             << "Failed to read file into buffer: " << filePath;
 
-        Adt::ADTParser parser;
+        Parser parser;
         bool success = parser.parse(buffer, filePath);
 
         // Оставляем подробный вывод логов парсера, но убираем лишние std::cout из теста
@@ -113,7 +115,7 @@ TEST_F(ADTParserTest, ValidateAzerothData)
     std::vector<unsigned char> buffer = readFileToBuffer(filePath.string());
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
-    Adt::ADTParser parser;
+    Parser parser;
     bool success = parser.parse(buffer, filePath.string());
     ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
 
@@ -289,7 +291,7 @@ TEST_F(ADTParserTest, ValidateBlackTempleData)
     std::vector<unsigned char> buffer = readFileToBuffer(filePath.string());
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
-    Adt::ADTParser parser;
+    Parser parser;
     bool success = parser.parse(buffer, filePath.string());
     ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
 
@@ -338,7 +340,7 @@ TEST_F(ADTParserTest, ValidateExpansion01Data)
     std::vector<unsigned char> buffer = readFileToBuffer(filePath.string());
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
-    Adt::ADTParser parser;
+    Parser parser;
     bool success = parser.parse(buffer, filePath.string());
     ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
 
@@ -413,7 +415,7 @@ TEST_F(ADTParserTest, ValidateIcecrownCitadelData)
     std::vector<unsigned char> buffer = readFileToBuffer(filePath.string());
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
-    Adt::ADTParser parser;
+    Parser parser;
     bool success = parser.parse(buffer, filePath.string());
     ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
 
@@ -454,7 +456,7 @@ TEST_F(ADTParserTest, ValidateNorthrendData)
     std::vector<unsigned char> buffer = readFileToBuffer(filePath.string());
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
-    Adt::ADTParser parser;
+    Parser parser;
     bool success = parser.parse(buffer, filePath.string());
     ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
 
@@ -496,7 +498,7 @@ TEST_F(ADTParserTest, ValidateTanarisInstanceData)
     std::vector<unsigned char> buffer = readFileToBuffer(filePath.string());
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
-    Adt::ADTParser parser;
+    Parser parser;
     bool success = parser.parse(buffer, filePath.string());
     ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
 

@@ -5,7 +5,7 @@
 #include <algorithm>    // Для std::equal
 #include <sstream>      // Для std::istringstream
 
-namespace Adt
+namespace NavMeshTool::ADT
 {
 
 // Вспомогательная функция для сравнения ID чанков (char[4] с const char*)
@@ -16,14 +16,14 @@ bool compareChunkId(const char chunkIdFromFile[4], const char* expectedReversedI
            chunkIdFromFile[2] == expectedReversedId[2] && chunkIdFromFile[3] == expectedReversedId[3];
 }
 
-void ADTParser::log(const std::string& message)
+void Parser::log(const std::string& message)
 {
     // Пока просто выводим в std::cout, в будущем можно интегрировать с QLoggingCategory
     // std::cout << message << std::endl;
     _logMessages.push_back(message);
 }
 
-bool ADTParser::readChunkHeader(std::istream& stream, ChunkHeader& header)
+bool Parser::readChunkHeader(std::istream& stream, ChunkHeader& header)
 {
     stream.read(reinterpret_cast<char*>(&header), sizeof(ChunkHeader));
     if (!stream || stream.gcount() != sizeof(ChunkHeader))
@@ -35,7 +35,7 @@ bool ADTParser::readChunkHeader(std::istream& stream, ChunkHeader& header)
 }
 
 template <typename T>
-bool ADTParser::readChunkData(std::istream& stream, uint32_t dataSize, T& dataStruct)
+bool Parser::readChunkData(std::istream& stream, uint32_t dataSize, T& dataStruct)
 {
     if (dataSize != sizeof(T))
     {
@@ -59,7 +59,7 @@ bool ADTParser::readChunkData(std::istream& stream, uint32_t dataSize, T& dataSt
 }
 
 // Реализация parseMVER
-bool ADTParser::parseMVER(std::istream& stream)
+bool Parser::parseMVER(std::istream& stream)
 {
     ChunkHeader mverHeader;
     if (!readChunkHeader(stream, mverHeader)) return false;
@@ -91,7 +91,7 @@ bool ADTParser::parseMVER(std::istream& stream)
 }
 
 // Реализация parseMHDR
-bool ADTParser::parseMHDR(std::istream& stream)
+bool Parser::parseMHDR(std::istream& stream)
 {
     ChunkHeader mhdrHeader;
     if (!readChunkHeader(stream, mhdrHeader)) return false;
@@ -140,7 +140,7 @@ bool ADTParser::parseMHDR(std::istream& stream)
 // mhdrDataBlockStartFileOffset - это абсолютное смещение в файле, где начинаются данные MHDR (после заголовка MHDR)
 // В нашем случае MHDR всегда 64 байта, и его данные начинаются после MVER (12 байт) + заголовка MHDR (8 байт)
 // т.е. 12 + 8 = 20 байт от начала файла.
-bool ADTParser::parseMCIN(std::istream& stream)
+bool Parser::parseMCIN(std::istream& stream)
 {
     if (mhdr.offsetMCIN == 0)
     {
@@ -179,7 +179,7 @@ bool ADTParser::parseMCIN(std::istream& stream)
 }
 
 // Реализация parseMCRF
-bool ADTParser::parseMCRF(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset)
+bool Parser::parseMCRF(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset)
 {
     if (mcnkChunk.header.ofsRefs == 0)
     {
@@ -302,7 +302,7 @@ bool ADTParser::parseMCRF(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t m
     return true;
 }
 
-bool ADTParser::parseMCVT(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset)
+bool Parser::parseMCVT(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset)
 {
     if (mcnkChunk.header.ofsHeight == 0)
     {
@@ -371,7 +371,7 @@ bool ADTParser::parseMCVT(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t m
     return true;
 }
 
-bool ADTParser::parseMCNR(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset)
+bool Parser::parseMCNR(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset)
 {
     if (mcnkChunk.header.ofsNormal == 0)
     {
@@ -438,7 +438,7 @@ bool ADTParser::parseMCNR(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t m
     return true;
 }
 
-bool ADTParser::parseMDDF(std::istream& stream)
+bool Parser::parseMDDF(std::istream& stream)
 {
     if (mhdr.offsetMDDF == 0)
     {
@@ -486,7 +486,7 @@ bool ADTParser::parseMDDF(std::istream& stream)
     return true;
 }
 
-bool ADTParser::parseMODF(std::istream& stream)
+bool Parser::parseMODF(std::istream& stream)
 {
     if (mhdr.offsetMODF == 0)
     {
@@ -534,7 +534,7 @@ bool ADTParser::parseMODF(std::istream& stream)
     return true;
 }
 
-bool ADTParser::parseMH2O(std::istream& stream)
+bool Parser::parseMH2O(std::istream& stream)
 {
     if (mhdr.offsetMH2O == 0)
     {
@@ -583,7 +583,7 @@ bool ADTParser::parseMH2O(std::istream& stream)
     return true;
 }
 
-bool ADTParser::parseMMDX(std::istream& stream)
+bool Parser::parseMMDX(std::istream& stream)
 {
     if (mhdr.offsetMMDX == 0)
     {
@@ -606,7 +606,7 @@ bool ADTParser::parseMMDX(std::istream& stream)
     return true;
 }
 
-bool ADTParser::parseMMID(std::istream& stream)
+bool Parser::parseMMID(std::istream& stream)
 {
     if (mhdr.offsetMMID == 0)
     {
@@ -635,7 +635,7 @@ bool ADTParser::parseMMID(std::istream& stream)
     return true;
 }
 
-bool ADTParser::parseMWMO(std::istream& stream)
+bool Parser::parseMWMO(std::istream& stream)
 {
     if (mhdr.offsetMWMO == 0)
     {
@@ -658,7 +658,7 @@ bool ADTParser::parseMWMO(std::istream& stream)
     return true;
 }
 
-bool ADTParser::parseMWID(std::istream& stream)
+bool Parser::parseMWID(std::istream& stream)
 {
     if (mhdr.offsetMWID == 0)
     {
@@ -687,7 +687,7 @@ bool ADTParser::parseMWID(std::istream& stream)
     return true;
 }
 
-void ADTParser::resolveModelPaths()
+void Parser::resolveModelPaths()
 {
     // Resolve Doodad (M2) paths
     if (!mmidOffsets.empty() && !mmdxData.empty())
@@ -729,7 +729,7 @@ void ADTParser::resolveModelPaths()
 }
 
 // Реализация parseMCNKs
-bool ADTParser::parseMCNKs(std::istream& stream)
+bool Parser::parseMCNKs(std::istream& stream)
 {
     log("--- Parsing " + std::to_string(mcinEntries.size()) + " MCNK chunks ---");
     for (int i = 0; i < 256; ++i)
@@ -847,7 +847,7 @@ bool ADTParser::parseMCNKs(std::istream& stream)
 }
 
 // Внутренний метод parseInternal (бывший parseFromStream)
-bool ADTParser::parseInternal(std::istream& stream, const std::string& sourceNameForLogging)
+bool Parser::parseInternal(std::istream& stream, const std::string& sourceNameForLogging)
 {
     adtSourceName = sourceNameForLogging;
     _logMessages.clear();
@@ -951,7 +951,7 @@ bool ADTParser::parseInternal(std::istream& stream, const std::string& sourceNam
 }
 
 // Новый метод parse из буфера
-bool ADTParser::parse(const std::vector<unsigned char>& dataBuffer, const std::string& adtNameForLogging)
+bool Parser::parse(const std::vector<unsigned char>& dataBuffer, const std::string& adtNameForLogging)
 {
     if (dataBuffer.empty())
     {
@@ -971,7 +971,7 @@ bool ADTParser::parse(const std::vector<unsigned char>& dataBuffer, const std::s
     return parseInternal(stream, adtNameForLogging);
 }
 
-bool ADTParser::parseMCLQ(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset, uint32_t sizeMCLQ)
+bool Parser::parseMCLQ(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset, uint32_t sizeMCLQ)
 {
     uint32_t absoluteMclqOffset = mcnkBaseOffset + mcnkChunk.header.ofsMCLQ;
     std::streampos originalPos = stream.tellg();
@@ -1001,4 +1001,4 @@ bool ADTParser::parseMCLQ(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t m
     return true;
 }
 
-}  // namespace Adt
+}  // namespace NavMeshTool::ADT

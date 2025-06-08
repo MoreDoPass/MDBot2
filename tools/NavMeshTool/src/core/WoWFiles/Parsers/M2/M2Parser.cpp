@@ -8,10 +8,10 @@
 
 Q_LOGGING_CATEGORY(logM2Parser, "navmesh.m2parser")
 
-namespace wow_files::m2
+namespace NavMeshTool::M2
 {
 
-std::optional<CollisionGeometry> M2Parser::parse(const std::string& file_path) const
+std::optional<CollisionGeometry> Parser::parse(const std::string& file_path) const
 {
     std::ifstream file(file_path, std::ios::binary);
     if (!file)
@@ -89,4 +89,4 @@ std::optional<CollisionGeometry> M2Parser::parse(const std::string& file_path) c
     return geom;
 }
 
-}  // namespace wow_files::m2
+}  // namespace NavMeshTool::M2

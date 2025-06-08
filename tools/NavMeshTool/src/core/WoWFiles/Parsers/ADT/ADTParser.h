@@ -23,7 +23,7 @@ struct CAaBox
 };
 #pragma pack(pop)
 
-namespace Adt
+namespace NavMeshTool::ADT
 {
 #pragma pack(push, 1)
 
@@ -248,11 +248,11 @@ struct MCNKChunk
     bool hasMCLQ = false;  // Флаг для локальной жидкости
 };
 
-class ADTParser
+class Parser
 {
    public:
-    ADTParser() = default;
-    ~ADTParser() = default;
+    Parser() = default;
+    ~Parser() = default;
 
     // Основной метод парсинга из буфера данных (например, от MpqManager)
     bool parse(const std::vector<unsigned char>& dataBuffer, const std::string& adtNameForLogging);
@@ -311,6 +311,6 @@ class ADTParser
 };
 
 #pragma pack(pop)
-}  // namespace Adt
+}  // namespace NavMeshTool::ADT
 
 #endif  // ADT_PARSER_H

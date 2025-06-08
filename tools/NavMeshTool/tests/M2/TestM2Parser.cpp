@@ -7,7 +7,7 @@
 #include <vector>
 #include <algorithm>
 
-using namespace wow_files::m2;
+using namespace NavMeshTool::M2;
 
 // Структура для хранения наших тестовых данных
 struct M2TestData
@@ -56,7 +56,7 @@ TEST_P(M2ParserTest, ParseM2AndCheckCollisionGeometry)
     std::string filePath =
         QDir(QString::fromStdString(testDataPath)).filePath(QString::fromStdString(testData.fileName)).toStdString();
 
-    M2Parser parser;
+    Parser parser;
     auto result = parser.parse(filePath);
 
     ASSERT_TRUE(result.has_value()) << "Не удалось распарсить файл: " << testData.fileName;

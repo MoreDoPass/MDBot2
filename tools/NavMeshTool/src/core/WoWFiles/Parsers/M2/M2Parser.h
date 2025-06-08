@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace wow_files::m2
+namespace NavMeshTool::M2
 {
 
 struct C3Vector
@@ -90,12 +90,12 @@ struct CollisionGeometry
     std::vector<C3Vector> normals;
 };
 
-class M2Parser
+class Parser
 {
    public:
-    M2Parser() = default;
+    Parser() = default;
 
     std::optional<CollisionGeometry> parse(const std::string& file_path) const;
 };
 
-}  // namespace wow_files::m2
+}  // namespace NavMeshTool::M2

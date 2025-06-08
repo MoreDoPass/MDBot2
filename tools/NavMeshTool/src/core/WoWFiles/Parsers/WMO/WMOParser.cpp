@@ -11,7 +11,7 @@
 
 Q_LOGGING_CATEGORY(logWMOParser, "navmesh.wmoparser")
 
-namespace wow_files::wmo
+namespace NavMeshTool::WMO
 {
 
 namespace
@@ -50,9 +50,9 @@ C3Vector transform_vertex(const C3Vector& vertex, const MODDData& doodad_def)
 }
 }  // namespace
 
-WMOParser::WMOParser() = default;
+Parser::Parser() = default;
 
-bool WMOParser::parse(const std::string& root_wmo_path)
+bool Parser::parse(const std::string& root_wmo_path)
 {
     qCDebug(logWMOParser) << "Starting to parse WMO file:" << QString::fromStdString(root_wmo_path);
 
@@ -165,7 +165,7 @@ bool WMOParser::parse(const std::string& root_wmo_path)
             for (const auto& local_vertex : m2_geom.vertices)
             {
                 // The C3Vector from m2 needs to be converted to a wmo C3Vector
-                const wmo::C3Vector wmo_vertex = {local_vertex.x, local_vertex.y, local_vertex.z};
+                const C3Vector wmo_vertex = {local_vertex.x, local_vertex.y, local_vertex.z};
                 final_geometry.vertices.push_back(transform_vertex(wmo_vertex, doodad_def));
             }
 
@@ -184,22 +184,22 @@ bool WMOParser::parse(const std::string& root_wmo_path)
     return true;
 }
 
-const std::optional<WmoGeometry>& WMOParser::get_geometry() const
+const std::optional<WmoGeometry>& Parser::get_geometry() const
 {
     return m_final_geometry;
 }
 
-const std::vector<wow_files::wmo::MOGPHeader>& WMOParser::get_group_headers() const
+const std::vector<MOGPHeader>& Parser::get_group_headers() const
 {
     return m_group_headers;
 }
 
-const std::vector<wow_files::wmo::WmoGroupData>& WMOParser::get_all_group_data() const
+const std::vector<WmoGroupData>& Parser::get_all_group_data() const
 {
     return m_all_group_data;
 }
 
-std::vector<GroupInfo> WMOParser::get_groups() const
+std::vector<GroupInfo> Parser::get_groups() const
 {
     if (!m_root_data) return {};
 
@@ -227,7 +227,7 @@ std::vector<GroupInfo> WMOParser::get_groups() const
     return result;
 }
 
-const std::vector<C3Vector>& WMOParser::get_portal_vertices() const
+const std::vector<C3Vector>& Parser::get_portal_vertices() const
 {
     if (!m_root_data)
     {
@@ -237,7 +237,7 @@ const std::vector<C3Vector>& WMOParser::get_portal_vertices() const
     return m_root_data->portal_vertices;
 }
 
-const std::vector<SMOPortalInfo>& WMOParser::get_portal_infos() const
+const std::vector<SMOPortalInfo>& Parser::get_portal_infos() const
 {
     if (!m_root_data)
     {
@@ -247,7 +247,7 @@ const std::vector<SMOPortalInfo>& WMOParser::get_portal_infos() const
     return m_root_data->portal_info;
 }
 
-const std::vector<SMOPortalRef>& WMOParser::get_portal_refs() const
+const std::vector<SMOPortalRef>& Parser::get_portal_refs() const
 {
     if (!m_root_data)
     {
@@ -257,7 +257,7 @@ const std::vector<SMOPortalRef>& WMOParser::get_portal_refs() const
     return m_root_data->portal_refs;
 }
 
-const std::vector<SMODoodadSet>& WMOParser::get_doodad_sets() const
+const std::vector<SMODoodadSet>& Parser::get_doodad_sets() const
 {
     if (!m_root_data)
     {
@@ -267,7 +267,7 @@ const std::vector<SMODoodadSet>& WMOParser::get_doodad_sets() const
     return m_root_data->doodad_sets;
 }
 
-const std::vector<MODDData>& WMOParser::get_doodad_defs() const
+const std::vector<MODDData>& Parser::get_doodad_defs() const
 {
     if (!m_root_data)
     {
@@ -277,7 +277,7 @@ const std::vector<MODDData>& WMOParser::get_doodad_defs() const
     return m_root_data->doodad_defs;
 }
 
-const std::vector<char>& WMOParser::get_doodad_names_blob() const
+const std::vector<char>& Parser::get_doodad_names_blob() const
 {
     if (!m_root_data)
     {
@@ -287,7 +287,7 @@ const std::vector<char>& WMOParser::get_doodad_names_blob() const
     return m_root_data->doodad_names_blob;
 }
 
-std::optional<WmoRootData> WMOParser::parseRootFile(const std::string& root_path) const
+std::optional<WmoRootData> Parser::parseRootFile(const std::string& root_path) const
 {
     std::ifstream file(root_path, std::ios::binary);
     if (!file)
@@ -379,7 +379,7 @@ std::optional<WmoRootData> WMOParser::parseRootFile(const std::string& root_path
     return root_data;
 }
 
-std::optional<WmoGroupData> WMOParser::parseGroupFile(const std::string& group_path) const
+std::optional<WmoGroupData> Parser::parseGroupFile(const std::string& group_path) const
 {
     std::ifstream file(group_path, std::ios::binary);
     if (!file)
@@ -487,4 +487,4 @@ std::optional<WmoGroupData> WMOParser::parseGroupFile(const std::string& group_p
     return group_data;
 }
 
-}  // namespace wow_files::wmo
+}  // namespace NavMeshTool::WMO

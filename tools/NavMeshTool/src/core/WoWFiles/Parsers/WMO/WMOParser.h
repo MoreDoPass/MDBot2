@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace wow_files::wmo
+namespace NavMeshTool::WMO
 {
 
 #pragma pack(push, 1)
@@ -197,10 +197,10 @@ struct GroupInfo
     CAaBox bounding_box;
 };
 
-class WMOParser
+class Parser
 {
    public:
-    WMOParser();
+    Parser();
 
     // The main parse function. Returns true on success.
     // After a successful call, you can retrieve geometry and metadata.
@@ -227,7 +227,7 @@ class WMOParser
     const std::vector<char>& get_doodad_names_blob() const;
 
    private:
-    m2::M2Parser m_m2_parser;
+    NavMeshTool::M2::Parser m_m2_parser;
     std::optional<WmoRootData> m_root_data;
     std::optional<WmoGeometry> m_final_geometry;
     std::vector<MOGPHeader> m_group_headers;
@@ -240,4 +240,4 @@ class WMOParser
     std::optional<WmoGroupData> parseGroupFile(const std::string& group_path) const;
 };
 
-}  // namespace wow_files::wmo
+}  // namespace NavMeshTool::WMO
