@@ -1,5 +1,6 @@
 #include "core/WoWFiles/Parsers/ADT/ADTParser.h"
 #include "gtest/gtest.h"
+#include "gmock/gmock.h"
 #include <iostream>
 #include <string>
 #include <vector>
@@ -89,21 +90,14 @@ TEST_F(ADTParserTest, ParseAllAdtFiles)
 
     for (const auto& filePath : adtFiles)
     {
-        std::ifstream file(filePath, std::ios::binary | std::ios::ate);
-        ASSERT_TRUE(file.is_open()) << "Failed to open file: " << filePath;
-
-        std::streamsize size = file.tellg();
-        file.seekg(0, std::ios::beg);
-
-        std::vector<unsigned char> buffer(size);
-        ASSERT_TRUE(file.read(reinterpret_cast<char*>(buffer.data()), size))
-            << "Failed to read file into buffer: " << filePath;
+        std::vector<unsigned char> buffer = readFileToBuffer(filePath);
+        ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath;
 
         Parser parser;
-        bool success = parser.parse(buffer, filePath);
+        auto adtDataOpt = parser.parse(buffer, filePath);
 
-        // Оставляем подробный вывод логов парсера, но убираем лишние std::cout из теста
-        ASSERT_TRUE(success) << "Parsing failed for file: " << filePath;
+        // Оставляем подробный вывод логов парсера, если он есть, но тест должен проходить
+        ASSERT_TRUE(adtDataOpt.has_value()) << "Parsing failed for file: " << filePath;
     }
 }
 
@@ -116,14 +110,15 @@ TEST_F(ADTParserTest, ValidateAzerothData)
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
     Parser parser;
-    bool success = parser.parse(buffer, filePath.string());
-    ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
+    auto adtDataOpt = parser.parse(buffer, filePath.string());
+    ASSERT_TRUE(adtDataOpt.has_value()) << "Parsing failed for file: " << filePath.string();
+    const auto& adtData = *adtDataOpt;
 
     // --- Проверка общей статистики по файлу ---
     // Данные из Python скрипта: total_doodad_refs = 453, total_map_obj_refs = 17
     uint32_t totalDoodadRefs = 0;
     uint32_t totalMapObjRefs = 0;
-    for (const auto& chunk : parser.mcnkChunks)
+    for (const auto& chunk : adtData.mcnkChunks)
     {
         totalDoodadRefs += chunk.header.nDoodadRefs;
         totalMapObjRefs += chunk.header.nMapObjRefs;
@@ -133,42 +128,42 @@ TEST_F(ADTParserTest, ValidateAzerothData)
 
     // --- Проверка смещений из MHDR ---
     // Данные из Python скрипта
-    EXPECT_EQ(parser.mhdr.offsetMCIN, 0x00000054);
-    EXPECT_EQ(parser.mhdr.offsetMTEX, 0x0000105C);
-    EXPECT_EQ(parser.mhdr.offsetMMDX, 0x0000125E);
-    EXPECT_EQ(parser.mhdr.offsetMMID, 0x00001F96);
-    EXPECT_EQ(parser.mhdr.offsetMWMO, 0x00002076);
-    EXPECT_EQ(parser.mhdr.offsetMWID, 0x00002170);
-    EXPECT_EQ(parser.mhdr.offsetMDDF, 0x00002184);
-    EXPECT_EQ(parser.mhdr.offsetMODF, 0x0000461C);
-    EXPECT_EQ(parser.mhdr.offsetMH2O, 0x000046E4);
+    EXPECT_EQ(adtData.mhdr.offsetMCIN, 0x00000054);
+    EXPECT_EQ(adtData.mhdr.offsetMTEX, 0x0000105C);
+    EXPECT_EQ(adtData.mhdr.offsetMMDX, 0x0000125E);
+    EXPECT_EQ(adtData.mhdr.offsetMMID, 0x00001F96);
+    EXPECT_EQ(adtData.mhdr.offsetMWMO, 0x00002076);
+    EXPECT_EQ(adtData.mhdr.offsetMWID, 0x00002170);
+    EXPECT_EQ(adtData.mhdr.offsetMDDF, 0x00002184);
+    EXPECT_EQ(adtData.mhdr.offsetMODF, 0x0000461C);
+    EXPECT_EQ(adtData.mhdr.offsetMH2O, 0x000046E4);
 
     // --- Проверка MH2O ---
-    ASSERT_TRUE(parser.hasMH2O);
+    ASSERT_TRUE(adtData.hasMH2O);
     // Проверяем на основе точных данных из Python-скрипта
 
     // MCNK_0_0 должен содержать воду
-    const auto& liquid_chunk_0_0 = parser.mh2oData.liquid_chunks[0 * 16 + 0];
+    const auto& liquid_chunk_0_0 = adtData.mh2oData.liquid_chunks[0 * 16 + 0];
     EXPECT_EQ(liquid_chunk_0_0.layer_count, 1);
     EXPECT_EQ(liquid_chunk_0_0.offset_instances, 0xC00);    // 3072
     EXPECT_EQ(liquid_chunk_0_0.offset_attributes, 0x1B60);  // 7008
 
     // MCNK_2_15 не должен содержать воду
-    const auto& liquid_chunk_2_15 = parser.mh2oData.liquid_chunks[2 * 16 + 15];
+    const auto& liquid_chunk_2_15 = adtData.mh2oData.liquid_chunks[2 * 16 + 15];
     EXPECT_EQ(liquid_chunk_2_15.layer_count, 0);
     EXPECT_EQ(liquid_chunk_2_15.offset_instances, 0);
     EXPECT_EQ(liquid_chunk_2_15.offset_attributes, 0);
 
     // --- Проверка MDDF ---
-    ASSERT_EQ(parser.mddfDefs.size(), 260);
-    const auto& mddf_def_0 = parser.mddfDefs[0];
+    ASSERT_EQ(adtData.mddfDefs.size(), 260);
+    const auto& mddf_def_0 = adtData.mddfDefs[0];
     EXPECT_EQ(mddf_def_0.nameId, 0);
     EXPECT_EQ(mddf_def_0.uniqueId, 94578);
     EXPECT_NEAR(mddf_def_0.position.x, 15268.08f, 0.01);
     EXPECT_NEAR(mddf_def_0.position.y, 4.73f, 0.01);
     EXPECT_NEAR(mddf_def_0.position.z, 26809.13f, 0.01);
 
-    const auto& mddf_def_last = parser.mddfDefs.back();
+    const auto& mddf_def_last = adtData.mddfDefs.back();
     EXPECT_EQ(mddf_def_last.nameId, 46);
     EXPECT_EQ(mddf_def_last.uniqueId, 15963);
     EXPECT_NEAR(mddf_def_last.position.x, 15147.03f, 0.01);
@@ -176,15 +171,15 @@ TEST_F(ADTParserTest, ValidateAzerothData)
     EXPECT_NEAR(mddf_def_last.position.z, 27024.39f, 0.01);
 
     // --- Проверка MODF ---
-    ASSERT_EQ(parser.modfDefs.size(), 3);
-    const auto& modf_def_0 = parser.modfDefs[0];
+    ASSERT_EQ(adtData.modfDefs.size(), 3);
+    const auto& modf_def_0 = adtData.modfDefs[0];
     EXPECT_EQ(modf_def_0.nameId, 0);
     EXPECT_EQ(modf_def_0.uniqueId, 15989);
     EXPECT_NEAR(modf_def_0.position.x, 15086.10f, 0.01);
     EXPECT_NEAR(modf_def_0.position.y, -4.89f, 0.01);
     EXPECT_NEAR(modf_def_0.position.z, 27092.02f, 0.01);
 
-    const auto& modf_def_last = parser.modfDefs.back();
+    const auto& modf_def_last = adtData.modfDefs.back();
     EXPECT_EQ(modf_def_last.nameId, 2);
     EXPECT_EQ(modf_def_last.uniqueId, 324818);
     EXPECT_NEAR(modf_def_last.position.x, 15253.71f, 0.01);
@@ -192,25 +187,25 @@ TEST_F(ADTParserTest, ValidateAzerothData)
     EXPECT_NEAR(modf_def_last.position.z, 26876.02f, 0.01);
 
     // --- Проверка путей к моделям ---
-    ASSERT_EQ(parser.doodadPaths.size(), 54);
-    EXPECT_STREQ(parser.doodadPaths[0].c_str(), "WORLD\\AZEROTH\\WESTFALL\\PASSIVEDOODADS\\TREES\\WESTFALLTREE01.M2");
-    EXPECT_STREQ(parser.doodadPaths.back().c_str(),
+    ASSERT_EQ(adtData.doodadPaths.size(), 54);
+    EXPECT_STREQ(adtData.doodadPaths[0].c_str(), "WORLD\\AZEROTH\\WESTFALL\\PASSIVEDOODADS\\TREES\\WESTFALLTREE01.M2");
+    EXPECT_STREQ(adtData.doodadPaths.back().c_str(),
                  "WORLD\\AZEROTH\\WESTFALL\\PASSIVEDOODADS\\TREES\\WESTFALLTREECANOPY01.M2");
 
-    ASSERT_EQ(parser.wmoPaths.size(), 3);
+    ASSERT_EQ(adtData.wmoPaths.size(), 3);
     // Python выводит строку с лишними пробелами, уберем их для сравнения
-    std::string wmo_path_0 = parser.wmoPaths[0];
+    std::string wmo_path_0 = adtData.wmoPaths[0];
     wmo_path_0.erase(std::remove_if(wmo_path_0.begin(), wmo_path_0.end(), ::isspace), wmo_path_0.end());
     EXPECT_STREQ(
         wmo_path_0.c_str(),
         "WORLD\\WMO\\KALIMDOR\\COLLIDABLEDOODADS\\DARKSHORE\\WRECKEDELVENDESTROYER\\ELVENDESTROYERWRECKBACK.WMO");
-    EXPECT_STREQ(parser.wmoPaths.back().c_str(), "WORLD\\WMO\\DUNGEON\\MD_SHIPWRECK\\SHIPWRECK_B.WMO");
+    EXPECT_STREQ(adtData.wmoPaths.back().c_str(), "WORLD\\WMO\\DUNGEON\\MD_SHIPWRECK\\SHIPWRECK_B.WMO");
 
     // --- Детальная проверка MCNK чанков ---
 
     // [MCNK_13_6]
     // nDoodadRefs = 1, nMapObjRefs = 0, MCRF_doodad_refs = [213]
-    const auto& mcnk_13_6 = parser.mcnkChunks[13 * 16 + 6];
+    const auto& mcnk_13_6 = adtData.mcnkChunks[13 * 16 + 6];
     EXPECT_EQ(mcnk_13_6.header.nDoodadRefs, 1);
     EXPECT_EQ(mcnk_13_6.header.nMapObjRefs, 0);
     ASSERT_TRUE(mcnk_13_6.hasMCRF);
@@ -238,7 +233,7 @@ TEST_F(ADTParserTest, ValidateAzerothData)
 
     // [MCNK_14_1]
     // nDoodadRefs = 0, nMapObjRefs = 0
-    const auto& mcnk_14_1 = parser.mcnkChunks[14 * 16 + 1];
+    const auto& mcnk_14_1 = adtData.mcnkChunks[14 * 16 + 1];
     EXPECT_EQ(mcnk_14_1.header.nDoodadRefs, 0);
     EXPECT_EQ(mcnk_14_1.header.nMapObjRefs, 0);
     EXPECT_TRUE(mcnk_14_1.hasMCRF);  // MCRF может быть, но пустой
@@ -247,14 +242,13 @@ TEST_F(ADTParserTest, ValidateAzerothData)
 
     // [MCNK_14_7]
     // nDoodadRefs = 3, nMapObjRefs = 0, MCRF_doodad_refs = [18, 39, 95]
-    const auto& mcnk_14_7 = parser.mcnkChunks[14 * 16 + 7];
+    const auto& mcnk_14_7 = adtData.mcnkChunks[14 * 16 + 7];
     EXPECT_EQ(mcnk_14_7.header.nDoodadRefs, 3);
     EXPECT_EQ(mcnk_14_7.header.nMapObjRefs, 0);
     ASSERT_TRUE(mcnk_14_7.hasMCRF);
     ASSERT_EQ(mcnk_14_7.mcrfData.doodadRefs.size(), 3);
-    EXPECT_EQ(mcnk_14_7.mcrfData.doodadRefs[0], 18);
-    EXPECT_EQ(mcnk_14_7.mcrfData.doodadRefs[1], 39);
-    EXPECT_EQ(mcnk_14_7.mcrfData.doodadRefs[2], 95);
+    const auto& mcnk_14_7_doodad_refs = mcnk_14_7.mcrfData.doodadRefs;
+    EXPECT_THAT(mcnk_14_7_doodad_refs, testing::ElementsAre(18, 39, 95));
     EXPECT_TRUE(mcnk_14_7.mcrfData.mapObjectRefs.empty());
 
     // Проверка MCVT для MCNK 14,7
@@ -271,7 +265,7 @@ TEST_F(ADTParserTest, ValidateAzerothData)
 
     // [MCNK_15_5]
     // nDoodadRefs = 1, nMapObjRefs = 0, MCRF_doodad_refs = [215]
-    const auto& mcnk_15_5 = parser.mcnkChunks[15 * 16 + 5];
+    const auto& mcnk_15_5 = adtData.mcnkChunks[15 * 16 + 5];
     EXPECT_EQ(mcnk_15_5.header.nDoodadRefs, 1);
     EXPECT_EQ(mcnk_15_5.header.nMapObjRefs, 0);
     ASSERT_TRUE(mcnk_15_5.hasMCRF);
@@ -292,14 +286,15 @@ TEST_F(ADTParserTest, ValidateBlackTempleData)
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
     Parser parser;
-    bool success = parser.parse(buffer, filePath.string());
-    ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
+    auto adtDataOpt = parser.parse(buffer, filePath.string());
+    ASSERT_TRUE(adtDataOpt.has_value()) << "Parsing failed for file: " << filePath.string();
+    const auto& adtData = *adtDataOpt;
 
     // --- Общая статистика ---
     // total_doodad_refs = 0, total_map_obj_refs = 0
     uint32_t totalDoodadRefs = 0;
     uint32_t totalMapObjRefs = 0;
-    for (const auto& chunk : parser.mcnkChunks)
+    for (const auto& chunk : adtData.mcnkChunks)
     {
         totalDoodadRefs += chunk.header.nDoodadRefs;
         totalMapObjRefs += chunk.header.nMapObjRefs;
@@ -308,26 +303,26 @@ TEST_F(ADTParserTest, ValidateBlackTempleData)
     EXPECT_EQ(totalMapObjRefs, 0);
 
     // --- Смещения MHDR ---
-    EXPECT_EQ(parser.mhdr.offsetMCIN, 0x00000054);
-    EXPECT_EQ(parser.mhdr.offsetMTEX, 0x0000105C);
-    EXPECT_EQ(parser.mhdr.offsetMMDX, 0x0000125E);
-    EXPECT_EQ(parser.mhdr.offsetMMID, 0x00001266);
-    EXPECT_EQ(parser.mhdr.offsetMWMO, 0x0000126E);
-    EXPECT_EQ(parser.mhdr.offsetMWID, 0x00001276);
-    EXPECT_EQ(parser.mhdr.offsetMDDF, 0x0000127E);
-    EXPECT_EQ(parser.mhdr.offsetMODF, 0x00001286);
+    EXPECT_EQ(adtData.mhdr.offsetMCIN, 0x00000054);
+    EXPECT_EQ(adtData.mhdr.offsetMTEX, 0x0000105C);
+    EXPECT_EQ(adtData.mhdr.offsetMMDX, 0x0000125E);
+    EXPECT_EQ(adtData.mhdr.offsetMMID, 0x00001266);
+    EXPECT_EQ(adtData.mhdr.offsetMWMO, 0x0000126E);
+    EXPECT_EQ(adtData.mhdr.offsetMWID, 0x00001276);
+    EXPECT_EQ(adtData.mhdr.offsetMDDF, 0x0000127E);
+    EXPECT_EQ(adtData.mhdr.offsetMODF, 0x00001286);
 
     // --- Проверка MDDF/MODF ---
-    EXPECT_TRUE(parser.mddfDefs.empty());
-    EXPECT_TRUE(parser.modfDefs.empty());
+    EXPECT_TRUE(adtData.mddfDefs.empty());
+    EXPECT_TRUE(adtData.modfDefs.empty());
 
     // --- Проверка путей к моделям ---
-    EXPECT_TRUE(parser.doodadPaths.empty());
-    EXPECT_TRUE(parser.wmoPaths.empty());
+    EXPECT_TRUE(adtData.doodadPaths.empty());
+    EXPECT_TRUE(adtData.wmoPaths.empty());
 
     // --- Детальная проверка MCNK ---
     // В этом файле у выбранных чанков нет ссылок
-    const auto& mcnk_13_6 = parser.mcnkChunks[13 * 16 + 6];
+    const auto& mcnk_13_6 = adtData.mcnkChunks[13 * 16 + 6];
     EXPECT_EQ(mcnk_13_6.header.nDoodadRefs, 0);
     EXPECT_EQ(mcnk_13_6.header.nMapObjRefs, 0);
 }
@@ -341,14 +336,15 @@ TEST_F(ADTParserTest, ValidateExpansion01Data)
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
     Parser parser;
-    bool success = parser.parse(buffer, filePath.string());
-    ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
+    auto adtDataOpt = parser.parse(buffer, filePath.string());
+    ASSERT_TRUE(adtDataOpt.has_value()) << "Parsing failed for file: " << filePath.string();
+    const auto& adtData = *adtDataOpt;
 
     // --- Общая статистика ---
     // total_doodad_refs = 1442, total_map_obj_refs = 2
     uint32_t totalDoodadRefs = 0;
     uint32_t totalMapObjRefs = 0;
-    for (const auto& chunk : parser.mcnkChunks)
+    for (const auto& chunk : adtData.mcnkChunks)
     {
         totalDoodadRefs += chunk.header.nDoodadRefs;
         totalMapObjRefs += chunk.header.nMapObjRefs;
@@ -357,41 +353,41 @@ TEST_F(ADTParserTest, ValidateExpansion01Data)
     EXPECT_EQ(totalMapObjRefs, 2);
 
     // --- Смещения MHDR ---
-    EXPECT_EQ(parser.mhdr.offsetMCIN, 0x00000054);
-    EXPECT_EQ(parser.mhdr.offsetMDDF, 0x00002539);
-    EXPECT_EQ(parser.mhdr.offsetMODF, 0x00007425);
-    EXPECT_EQ(parser.mhdr.offsetMFBO, 0x001D873D);
+    EXPECT_EQ(adtData.mhdr.offsetMCIN, 0x00000054);
+    EXPECT_EQ(adtData.mhdr.offsetMDDF, 0x00002539);
+    EXPECT_EQ(adtData.mhdr.offsetMODF, 0x00007425);
+    EXPECT_EQ(adtData.mhdr.offsetMFBO, 0x001D873D);
 
     // --- Проверка MDDF ---
-    ASSERT_EQ(parser.mddfDefs.size(), 561);
-    const auto& mddf_def_exp01_0 = parser.mddfDefs[0];
+    ASSERT_EQ(adtData.mddfDefs.size(), 561);
+    const auto& mddf_def_exp01_0 = adtData.mddfDefs[0];
     EXPECT_EQ(mddf_def_exp01_0.nameId, 1);
     EXPECT_EQ(mddf_def_exp01_0.uniqueId, 944657);
     EXPECT_NEAR(mddf_def_exp01_0.position.x, 8289.66f, 0.01);
 
-    const auto& mddf_def_exp01_last = parser.mddfDefs.back();
+    const auto& mddf_def_exp01_last = adtData.mddfDefs.back();
     EXPECT_EQ(mddf_def_exp01_last.nameId, 59);
     EXPECT_EQ(mddf_def_exp01_last.uniqueId, 927581);
     EXPECT_NEAR(mddf_def_exp01_last.position.y, 18.72f, 0.01);
 
     // --- Проверка MODF ---
-    ASSERT_EQ(parser.modfDefs.size(), 1);
-    const auto& modf_def_exp01_0 = parser.modfDefs[0];
+    ASSERT_EQ(adtData.modfDefs.size(), 1);
+    const auto& modf_def_exp01_0 = adtData.modfDefs[0];
     EXPECT_EQ(modf_def_exp01_0.nameId, 0);
     EXPECT_EQ(modf_def_exp01_0.uniqueId, 920624);
     EXPECT_NEAR(modf_def_exp01_0.position.z, 16846.75f, 0.01);
 
     // --- Проверка путей к моделям ---
-    ASSERT_EQ(parser.doodadPaths.size(), 70);
-    EXPECT_STREQ(parser.doodadPaths[0].c_str(), "WORLD\\EXPANSION01\\DOODADS\\ZANGAR\\MUSHROOM\\ZANGARMUSHROOM05.M2");
-    EXPECT_STREQ(parser.doodadPaths.back().c_str(),
+    ASSERT_EQ(adtData.doodadPaths.size(), 70);
+    EXPECT_STREQ(adtData.doodadPaths[0].c_str(), "WORLD\\EXPANSION01\\DOODADS\\ZANGAR\\MUSHROOM\\ZANGARMUSHROOM05.M2");
+    EXPECT_STREQ(adtData.doodadPaths.back().c_str(),
                  "WORLD\\EXPANSION01\\DOODADS\\ZANGAR\\FLOATINGSPORE\\ZM_BIG_SPORE_ANIM_01.M2");
 
-    ASSERT_EQ(parser.wmoPaths.size(), 1);
-    EXPECT_STREQ(parser.wmoPaths[0].c_str(), "WORLD\\WMO\\OUTLAND\\SPOREBUILDINGS\\SPOREHUT_01.WMO");
+    ASSERT_EQ(adtData.wmoPaths.size(), 1);
+    EXPECT_STREQ(adtData.wmoPaths[0].c_str(), "WORLD\\WMO\\OUTLAND\\SPOREBUILDINGS\\SPOREHUT_01.WMO");
 
     // --- Детальная проверка MCNK ---
-    const auto& mcnk_13_6 = parser.mcnkChunks[13 * 16 + 6];
+    const auto& mcnk_13_6 = adtData.mcnkChunks[13 * 16 + 6];
     EXPECT_EQ(mcnk_13_6.header.nDoodadRefs, 5);
     ASSERT_EQ(mcnk_13_6.mcrfData.doodadRefs.size(), 5);
     EXPECT_EQ(mcnk_13_6.mcrfData.doodadRefs[0], 54);
@@ -400,7 +396,7 @@ TEST_F(ADTParserTest, ValidateExpansion01Data)
     EXPECT_EQ(mcnk_13_6.mcrfData.doodadRefs[3], 495);
     EXPECT_EQ(mcnk_13_6.mcrfData.doodadRefs[4], 496);
 
-    const auto& mcnk_14_7 = parser.mcnkChunks[14 * 16 + 7];
+    const auto& mcnk_14_7 = adtData.mcnkChunks[14 * 16 + 7];
     EXPECT_EQ(mcnk_14_7.header.nDoodadRefs, 8);
     ASSERT_EQ(mcnk_14_7.mcrfData.doodadRefs.size(), 8);
     EXPECT_EQ(mcnk_14_7.mcrfData.doodadRefs[4], 185);
@@ -416,14 +412,15 @@ TEST_F(ADTParserTest, ValidateIcecrownCitadelData)
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
     Parser parser;
-    bool success = parser.parse(buffer, filePath.string());
-    ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
+    auto adtDataOpt = parser.parse(buffer, filePath.string());
+    ASSERT_TRUE(adtDataOpt.has_value()) << "Parsing failed for file: " << filePath.string();
+    const auto& adtData = *adtDataOpt;
 
     // --- Общая статистика ---
     // total_doodad_refs = 0, total_map_obj_refs = 0
     uint32_t totalDoodadRefs = 0;
     uint32_t totalMapObjRefs = 0;
-    for (const auto& chunk : parser.mcnkChunks)
+    for (const auto& chunk : adtData.mcnkChunks)
     {
         totalDoodadRefs += chunk.header.nDoodadRefs;
         totalMapObjRefs += chunk.header.nMapObjRefs;
@@ -432,18 +429,18 @@ TEST_F(ADTParserTest, ValidateIcecrownCitadelData)
     EXPECT_EQ(totalMapObjRefs, 0);
 
     // --- Смещения MHDR ---
-    EXPECT_EQ(parser.mhdr.offsetMFBO, 0x0017459B);
+    EXPECT_EQ(adtData.mhdr.offsetMFBO, 0x0017459B);
 
     // --- Проверка MDDF/MODF ---
-    EXPECT_TRUE(parser.mddfDefs.empty());
-    EXPECT_TRUE(parser.modfDefs.empty());
+    EXPECT_TRUE(adtData.mddfDefs.empty());
+    EXPECT_TRUE(adtData.modfDefs.empty());
 
     // --- Проверка путей к моделям ---
-    EXPECT_TRUE(parser.doodadPaths.empty());
-    EXPECT_TRUE(parser.wmoPaths.empty());
+    EXPECT_TRUE(adtData.doodadPaths.empty());
+    EXPECT_TRUE(adtData.wmoPaths.empty());
 
     // --- Детальная проверка MCNK ---
-    const auto& mcnk_15_5 = parser.mcnkChunks[15 * 16 + 5];
+    const auto& mcnk_15_5 = adtData.mcnkChunks[15 * 16 + 5];
     EXPECT_EQ(mcnk_15_5.header.nDoodadRefs, 0);
     EXPECT_EQ(mcnk_15_5.header.nMapObjRefs, 0);
 }
@@ -457,14 +454,15 @@ TEST_F(ADTParserTest, ValidateNorthrendData)
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
     Parser parser;
-    bool success = parser.parse(buffer, filePath.string());
-    ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
+    auto adtDataOpt = parser.parse(buffer, filePath.string());
+    ASSERT_TRUE(adtDataOpt.has_value()) << "Parsing failed for file: " << filePath.string();
+    const auto& adtData = *adtDataOpt;
 
     // --- Общая статистика ---
     // total_doodad_refs = 1831, total_map_obj_refs = 0
     uint32_t totalDoodadRefs = 0;
     uint32_t totalMapObjRefs = 0;
-    for (const auto& chunk : parser.mcnkChunks)
+    for (const auto& chunk : adtData.mcnkChunks)
     {
         totalDoodadRefs += chunk.header.nDoodadRefs;
         totalMapObjRefs += chunk.header.nMapObjRefs;
@@ -473,17 +471,18 @@ TEST_F(ADTParserTest, ValidateNorthrendData)
     EXPECT_EQ(totalMapObjRefs, 0);
 
     // --- Проверка MDDF/MODF ---
-    ASSERT_EQ(parser.mddfDefs.size(), 1157);
-    EXPECT_TRUE(parser.modfDefs.empty());
+    ASSERT_EQ(adtData.mddfDefs.size(), 1157);
+    EXPECT_TRUE(adtData.modfDefs.empty());
 
     // --- Проверка путей к моделям ---
-    ASSERT_EQ(parser.doodadPaths.size(), 12);
-    EXPECT_STREQ(parser.doodadPaths[0].c_str(), "WORLD\\KALIMDOR\\AZSHARA\\SEAPLANTS\\STARFISH01_02\\STARFISH01_02.M2");
-    EXPECT_STREQ(parser.doodadPaths.back().c_str(), "WORLD\\EXPANSION02\\DOODADS\\COLDARRA\\COLDARRALOCUS.M2");
-    EXPECT_TRUE(parser.wmoPaths.empty());
+    ASSERT_EQ(adtData.doodadPaths.size(), 12);
+    EXPECT_STREQ(adtData.doodadPaths[0].c_str(),
+                 "WORLD\\KALIMDOR\\AZSHARA\\SEAPLANTS\\STARFISH01_02\\STARFISH01_02.M2");
+    EXPECT_STREQ(adtData.doodadPaths.back().c_str(), "WORLD\\EXPANSION02\\DOODADS\\COLDARRA\\COLDARRALOCUS.M2");
+    EXPECT_TRUE(adtData.wmoPaths.empty());
 
     // --- Детальная проверка MCNK ---
-    const auto& mcnk_14_1 = parser.mcnkChunks[14 * 16 + 1];
+    const auto& mcnk_14_1 = adtData.mcnkChunks[14 * 16 + 1];
     EXPECT_EQ(mcnk_14_1.header.nDoodadRefs, 6);
     ASSERT_EQ(mcnk_14_1.mcrfData.doodadRefs.size(), 6);
     EXPECT_EQ(mcnk_14_1.mcrfData.doodadRefs[0], 1);
@@ -499,14 +498,15 @@ TEST_F(ADTParserTest, ValidateTanarisInstanceData)
     ASSERT_FALSE(buffer.empty()) << "Buffer is empty for file: " << filePath.string();
 
     Parser parser;
-    bool success = parser.parse(buffer, filePath.string());
-    ASSERT_TRUE(success) << "Parsing failed for file: " << filePath.string();
+    auto adtDataOpt = parser.parse(buffer, filePath.string());
+    ASSERT_TRUE(adtDataOpt.has_value()) << "Parsing failed for file: " << filePath.string();
+    const auto& adtData = *adtDataOpt;
 
     // --- Общая статистика ---
     // total_doodad_refs = 359, total_map_obj_refs = 0
     uint32_t totalDoodadRefs = 0;
     uint32_t totalMapObjRefs = 0;
-    for (const auto& chunk : parser.mcnkChunks)
+    for (const auto& chunk : adtData.mcnkChunks)
     {
         totalDoodadRefs += chunk.header.nDoodadRefs;
         totalMapObjRefs += chunk.header.nMapObjRefs;
@@ -515,17 +515,17 @@ TEST_F(ADTParserTest, ValidateTanarisInstanceData)
     EXPECT_EQ(totalMapObjRefs, 0);
 
     // --- Проверка MDDF/MODF ---
-    ASSERT_EQ(parser.mddfDefs.size(), 64);
-    EXPECT_TRUE(parser.modfDefs.empty());
+    ASSERT_EQ(adtData.mddfDefs.size(), 64);
+    EXPECT_TRUE(adtData.modfDefs.empty());
 
     // --- Проверка путей к моделям ---
-    ASSERT_EQ(parser.doodadPaths.size(), 19);
-    EXPECT_STREQ(parser.doodadPaths[0].c_str(), "WORLD\\KALIMDOR\\FERALAS\\PASSIVEDOODADS\\TREE\\FERALASTREE03.M2");
-    EXPECT_STREQ(parser.doodadPaths.back().c_str(), "WORLD\\KALIMDOR\\UNGORO\\PASSIVEDOODADS\\ROCKS\\UNGOROROCK06.M2");
-    EXPECT_TRUE(parser.wmoPaths.empty());
+    ASSERT_EQ(adtData.doodadPaths.size(), 19);
+    EXPECT_STREQ(adtData.doodadPaths[0].c_str(), "WORLD\\KALIMDOR\\FERALAS\\PASSIVEDOODADS\\TREE\\FERALASTREE03.M2");
+    EXPECT_STREQ(adtData.doodadPaths.back().c_str(), "WORLD\\KALIMDOR\\UNGORO\\PASSIVEDOODADS\\ROCKS\\UNGOROROCK06.M2");
+    EXPECT_TRUE(adtData.wmoPaths.empty());
 
     // --- Детальная проверка MCNK ---
-    const auto& mcnk_13_6 = parser.mcnkChunks[13 * 16 + 6];
+    const auto& mcnk_13_6 = adtData.mcnkChunks[13 * 16 + 6];
     EXPECT_EQ(mcnk_13_6.header.nDoodadRefs, 3);
     ASSERT_EQ(mcnk_13_6.mcrfData.doodadRefs.size(), 3);
     EXPECT_EQ(mcnk_13_6.mcrfData.doodadRefs[0], 41);
@@ -544,13 +544,13 @@ TEST_F(ADTParserTest, ValidateTanarisInstanceData)
     EXPECT_EQ(mcnk_13_6.mcnrData.normals[72].z, 55);
     EXPECT_EQ(mcnk_13_6.mcnrData.normals[144].y, 106);
 
-    const auto& mcnk_14_1 = parser.mcnkChunks[14 * 16 + 1];
+    const auto& mcnk_14_1 = adtData.mcnkChunks[14 * 16 + 1];
     EXPECT_EQ(mcnk_14_1.header.nDoodadRefs, 6);
     ASSERT_EQ(mcnk_14_1.mcrfData.doodadRefs.size(), 6);
     EXPECT_EQ(mcnk_14_1.mcrfData.doodadRefs[0], 2);
     EXPECT_EQ(mcnk_14_1.mcrfData.doodadRefs[5], 59);
 
-    const auto& mcnk_15_5 = parser.mcnkChunks[15 * 16 + 5];
+    const auto& mcnk_15_5 = adtData.mcnkChunks[15 * 16 + 5];
     EXPECT_EQ(mcnk_15_5.header.nDoodadRefs, 3);
     ASSERT_EQ(mcnk_15_5.mcrfData.doodadRefs.size(), 3);
     EXPECT_EQ(mcnk_15_5.mcrfData.doodadRefs[2], 63);

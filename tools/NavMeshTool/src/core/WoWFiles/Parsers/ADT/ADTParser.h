@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <fstream>
 #include <array>  // Для MCNK_Header_WotLK::reallyLowQualityTextureingMap и noEffectDoodad
+#include <optional>
 
 // Для C3Vector и CAaBox, если они будут определены в другом месте,
 // нужно будет включить соответствующий заголовок.
@@ -248,6 +249,31 @@ struct MCNKChunk
     bool hasMCLQ = false;  // Флаг для локальной жидкости
 };
 
+// Новая структура для хранения всех данных ADT
+struct ADTData
+{
+    std::string adtSourceName;
+    MVERData mver;
+    MHDRData mhdr;
+    std::array<MCINEntry, 256> mcinEntries;
+    std::array<MCNKChunk, 256> mcnkChunks;
+    std::vector<SMDoodadDef> mddfDefs;
+    std::vector<SMMapObjDef> modfDefs;
+
+    // Данные для имен моделей
+    std::vector<char> mmdxData;
+    std::vector<uint32_t> mmidOffsets;
+    std::vector<char> mwmoData;
+    std::vector<uint32_t> mwidOffsets;
+
+    // Распарсенные и готовые к использованию пути
+    std::vector<std::string> doodadPaths;
+    std::vector<std::string> wmoPaths;
+
+    MH2OData mh2oData;
+    bool hasMH2O = false;
+};
+
 class Parser
 {
    public:
@@ -255,31 +281,12 @@ class Parser
     ~Parser() = default;
 
     // Основной метод парсинга из буфера данных (например, от MpqManager)
-    bool parse(const std::vector<unsigned char>& dataBuffer, const std::string& adtNameForLogging);
-
-    MVERData mver;
-    MHDRData mhdr;
-    std::array<MCINEntry, 256> mcinEntries;
-    std::array<MCNKChunk, 256> mcnkChunks;
-    std::vector<SMDoodadDef> mddfDefs;
-    std::vector<SMMapObjDef> modfDefs;
-    std::string adtSourceName;  // Переименовано из adtFilePath для ясности
-
-    // Данные для имен моделей
-    std::vector<char> mmdxData;         // Блок с именами файлов M2 моделей (doodads)
-    std::vector<uint32_t> mmidOffsets;  // Смещения в mmdxData
-    std::vector<char> mwmoData;         // Блок с именами файлов WMO
-    std::vector<uint32_t> mwidOffsets;  // Смещения в mwmoData
-
-    // Распарсенные и готовые к использованию пути
-    std::vector<std::string> doodadPaths;
-    std::vector<std::string> wmoPaths;
-    MH2OData mh2oData;
-    bool hasMH2O = false;
+    // Возвращает std::optional<ADTData>, содержащий все данные в случае успеха
+    std::optional<ADTData> parse(const std::vector<unsigned char>& dataBuffer, const std::string& adtNameForLogging);
 
    private:
-    // Внутренний метод, работающий с потоком
-    bool parseInternal(std::istream& stream, const std::string& sourceNameForLogging);
+    // Внутренний метод, работающий с потоком и заполняющий структуру ADTData
+    bool parseInternal(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
 
     bool readChunkHeader(std::istream& stream, ChunkHeader& header);
 
@@ -287,27 +294,30 @@ class Parser
     bool readChunkData(std::istream& stream, uint32_t dataSize, T& dataStruct);
 
     // Вспомогательные функции для парсинга конкретных чанков, принимающие istream
-    bool parseMVER(std::istream& stream);
-    bool parseMHDR(std::istream& stream);
-    bool parseMCIN(std::istream& stream);
-    bool parseMCNKs(std::istream& stream);
-    bool parseMCRF(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset);
-    bool parseMCVT(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset);
-    bool parseMCNR(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset);
-    bool parseMDDF(std::istream& stream);
-    bool parseMODF(std::istream& stream);
-    bool parseMMDX(std::istream& stream);
-    bool parseMMID(std::istream& stream);
-    bool parseMWMO(std::istream& stream);
-    bool parseMWID(std::istream& stream);
-    bool parseMH2O(std::istream& stream);  // Парсер для глобальной жидкости
-    bool parseMCLQ(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset,
-                   uint32_t sizeMCLQ);  // Парсер для локальной жидкости
-    void resolveModelPaths();
+    bool parseMVER(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMHDR(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMCIN(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMCNKs(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMCRF(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset,
+                   std::vector<std::string>& logMessages);
+    bool parseMCVT(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset,
+                   std::vector<std::string>& logMessages);
+    bool parseMCNR(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset,
+                   std::vector<std::string>& logMessages);
+    bool parseMDDF(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMODF(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMMDX(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMMID(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMWMO(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMWID(std::istream& stream, ADTData& adtData, std::vector<std::string>& logMessages);
+    bool parseMH2O(std::istream& stream, ADTData& adtData,
+                   std::vector<std::string>& logMessages);  // Парсер для глобальной жидкости
+    bool parseMCLQ(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnkBaseOffset, uint32_t sizeMCLQ,
+                   std::vector<std::string>& logMessages);  // Парсер для локальной жидкости
+    void resolveModelPaths(ADTData& adtData);
 
     // Другие приватные члены и методы, если понадобятся
-    std::vector<std::string> _logMessages;  // Для временного логирования, как в Python
-    void log(const std::string& message);
+    void log(const std::string& message, std::vector<std::string>& logMessages);
 };
 
 #pragma pack(pop)
