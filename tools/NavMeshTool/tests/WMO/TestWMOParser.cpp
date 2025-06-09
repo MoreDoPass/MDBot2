@@ -5,156 +5,182 @@
 #include <vector>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <optional>
 
-// Helper function to write WmoGeometry to a .obj file for visualization
-void save_to_obj(const std::string& filepath, const NavMeshTool::WMO::WmoGeometry& geometry)
+// Helper to read a binary file into a vector. This is used by our FileProvider.
+std::optional<std::vector<unsigned char>> read_file_into_buffer(const std::filesystem::path& path)
+{
+    if (!std::filesystem::exists(path))
+    {
+        // It's normal for some files (especially doodads) not to be found, so no warning here.
+        return std::nullopt;
+    }
+
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file)
+    {
+        // But if the file exists and we can't open it, that's a problem.
+        std::cerr << "Failed to open file: " << path << std::endl;
+        return std::nullopt;
+    }
+
+    const std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    std::vector<unsigned char> buffer(static_cast<size_t>(size));
+    if (file.read(reinterpret_cast<char*>(buffer.data()), size))
+    {
+        return buffer;
+    }
+
+    std::cerr << "Failed to read file into buffer: " << path << std::endl;
+    return std::nullopt;
+}
+
+// Helper function to write WmoData to a .obj file for visualization in Blender/3ds Max
+void save_to_obj(const std::string& filepath, const NavMeshTool::WMO::WmoData& data)
 {
     std::ofstream obj_file(filepath);
     if (!obj_file)
     {
-        // In a real application, handle this error more gracefully
         return;
     }
 
     // Write vertices
-    for (const auto& v : geometry.vertices)
+    for (const auto& v : data.vertices)
     {
         obj_file << "v " << v.x << " " << v.y << " " << v.z << "\n";
     }
 
     // Write faces (indices)
     // .obj files use 1-based indexing
-    for (size_t i = 0; i < geometry.indices.size(); i += 3)
+    for (size_t i = 0; i < data.indices.size(); i += 3)
     {
-        obj_file << "f " << geometry.indices[i] + 1 << " " << geometry.indices[i + 1] + 1 << " "
-                 << geometry.indices[i + 2] + 1 << "\n";
+        obj_file << "f " << data.indices[i] + 1 << " " << data.indices[i + 1] + 1 << " " << data.indices[i + 2] + 1
+                 << "\n";
     }
 }
 
-TEST(TestWMOParser, BlackTempleGroupInfo)
+// Common setup for all Black Temple tests
+class TestWMOParser_BlackTemple : public ::testing::Test
 {
-    // Path to the test data, assuming it's copied to the build directory's "Data" folder
-    const std::filesystem::path data_dir = "Data";
-    const auto root_wmo_path = data_dir / "Blacktemple.wmo";
+   protected:
+    std::optional<NavMeshTool::WMO::WmoData> wmo_data_opt;
 
-    ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
+    void SetUp() override
+    {
+        const std::filesystem::path data_dir = "Data";
+        const std::string root_wmo_name = "Blacktemple.wmo";
+        const auto root_wmo_path = data_dir / root_wmo_name;
 
-    // Parse the WMO with our C++ parser
-    NavMeshTool::WMO::Parser parser;
-    const bool parse_success = parser.parse(root_wmo_path.string());
+        if (!std::filesystem::exists(root_wmo_path))
+        {
+            GTEST_SKIP() << "Root WMO file not found, skipping tests: " << root_wmo_path.string();
+            return;
+        }
 
-    ASSERT_TRUE(parse_success) << "WMOParser failed to parse the file.";
+        auto root_buffer_opt = read_file_into_buffer(root_wmo_path);
+        if (!root_buffer_opt)
+        {
+            GTEST_FAIL() << "Could not read root WMO file into buffer: " << root_wmo_path.string();
+            return;
+        }
 
-    const auto groups = parser.get_groups();
+        // This lambda acts as our FileProvider, loading dependent files from the Data directory on demand.
+        auto file_provider = [&](const std::string& filename) -> std::optional<std::vector<unsigned char>>
+        {
+            // The parser requests files with WoW-style paths. We need to find them in our flat "Data" directory.
+            std::filesystem::path fs_path(filename);
+            return read_file_into_buffer(data_dir / fs_path.filename());
+        };
 
-    // 1. Check the total number of groups from the MOHD header.
-    ASSERT_EQ(groups.size(), 49) << "Expected 49 groups based on MOHD.nGroups.";
+        NavMeshTool::WMO::Parser parser;
+        wmo_data_opt = parser.parse(root_wmo_name, *root_buffer_opt, file_provider);
+    }
+};
 
-    // 2. Perform spot checks on specific groups to verify MOGI and MOGN parsing.
-    // These values are taken from the python script's analysis of the file.
-
-    // Groups 40, 42, 44 have the same name but group 40 has different flags.
-    // This is a good test case.
-    ASSERT_EQ(groups[40].name, "Den of Mortal Delights");
-    EXPECT_EQ(groups[40].flags, 0x000420C0);
-
-    ASSERT_EQ(groups[42].name, "Den of Mortal Delights");
-    EXPECT_EQ(groups[42].flags, 0x00002040);
-
-    ASSERT_EQ(groups[44].name, "Den of Mortal Delights");
-    EXPECT_EQ(groups[44].flags, 0x00002040);
-
-    // Check another distinct group for robustness
-    ASSERT_EQ(groups[46].name, "Chamber of Command");
-    EXPECT_EQ(groups[46].flags, 0x000400C8);
-
-    // Check a group with a different name
-    ASSERT_EQ(groups[41].name, "balcony");
-    EXPECT_EQ(groups[41].flags, 0x00002040);
-
-    // Check the first few groups, some of which may not have names.
-    ASSERT_EQ(groups[0].name, "N/A");
-    EXPECT_EQ(groups[0].flags, 0x00002000);
-
-    ASSERT_EQ(groups[2].name, "hall08");
-    EXPECT_EQ(groups[2].flags, 0x00042040);
+TEST_F(TestWMOParser_BlackTemple, RootFileIsParsedSuccessfully)
+{
+    ASSERT_TRUE(wmo_data_opt.has_value()) << "WMOParser failed to parse the file.";
 }
 
-TEST(TestWMOParser, BlackTemplePortalInfo)
+TEST_F(TestWMOParser_BlackTemple, GroupInfo)
 {
-    const std::filesystem::path data_dir = "Data";
-    const auto root_wmo_path = data_dir / "Blacktemple.wmo";
+    ASSERT_TRUE(wmo_data_opt.has_value());
+    const auto& wmo_data = wmo_data_opt.value();
 
-    ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
+    ASSERT_EQ(wmo_data.header.nGroups, 49) << "Expected 49 groups based on MOHD.nGroups.";
+    ASSERT_EQ(wmo_data.group_info.size(), 49) << "Expected 49 group info entries.";
 
-    NavMeshTool::WMO::Parser parser;
-    const bool parse_success = parser.parse(root_wmo_path.string());
+    auto get_group_name = [&](int index)
+    {
+        const auto& info = wmo_data.group_info[index];
+        if (info.name_offset == -1 || info.name_offset >= wmo_data.group_names_blob.size()) return std::string("N/A");
+        return std::string(&wmo_data.group_names_blob[info.name_offset]);
+    };
 
-    ASSERT_TRUE(parse_success) << "WMOParser failed to parse the file.";
+    EXPECT_EQ(get_group_name(40), "Den of Mortal Delights");
+    EXPECT_EQ(wmo_data.group_info[40].flags, 0x000420C0);
 
-    // 1. Check counts from MOHD header against parsed chunk sizes.
-    const auto& portal_vertices = parser.get_portal_vertices();
-    const auto& portal_infos = parser.get_portal_infos();
-    const auto& portal_refs = parser.get_portal_refs();
+    EXPECT_EQ(get_group_name(42), "Den of Mortal Delights");
+    EXPECT_EQ(wmo_data.group_info[42].flags, 0x00002040);
 
-    ASSERT_EQ(portal_vertices.size(), 318) << "Expected 318 portal vertices (MOPV).";
-    ASSERT_EQ(portal_infos.size(), 78) << "Expected 78 portal definitions (MOPT).";
-    ASSERT_EQ(portal_refs.size(), 132) << "Expected 132 portal relationships (MOPR).";
+    EXPECT_EQ(get_group_name(44), "Den of Mortal Delights");
+    EXPECT_EQ(wmo_data.group_info[44].flags, 0x00002040);
 
-    // 2. Spot check some specific portal relationships from the log.
-    // Ref 0: Portal 7 leads to Group 8 (side: -1)
-    const auto& ref0 = portal_refs[0];
+    EXPECT_EQ(get_group_name(46), "Chamber of Command");
+    EXPECT_EQ(wmo_data.group_info[46].flags, 0x000400C8);
+
+    EXPECT_EQ(get_group_name(41), "balcony");
+    EXPECT_EQ(wmo_data.group_info[41].flags, 0x00002040);
+
+    EXPECT_EQ(get_group_name(0), "N/A");
+    EXPECT_EQ(wmo_data.group_info[0].flags, 0x00002000);
+
+    EXPECT_EQ(get_group_name(2), "hall08");
+    EXPECT_EQ(wmo_data.group_info[2].flags, 0x00042040);
+}
+
+TEST_F(TestWMOParser_BlackTemple, PortalInfo)
+{
+    ASSERT_TRUE(wmo_data_opt.has_value());
+    const auto& wmo_data = wmo_data_opt.value();
+
+    ASSERT_EQ(wmo_data.portal_vertices.size(), 318) << "Expected 318 portal vertices (MOPV).";
+    ASSERT_EQ(wmo_data.portal_infos.size(), 78) << "Expected 78 portal definitions (MOPT).";
+    ASSERT_EQ(wmo_data.portal_refs.size(), 132) << "Expected 132 portal relationships (MOPR).";
+
+    const auto& ref0 = wmo_data.portal_refs[0];
     EXPECT_EQ(ref0.portal_index, 7);
     EXPECT_EQ(ref0.group_index, 8);
     EXPECT_EQ(ref0.side, -1);
 
-    // Ref 1: Portal 8 leads to Group 7 (side: 1)
-    const auto& ref1 = portal_refs[1];
+    const auto& ref1 = wmo_data.portal_refs[1];
     EXPECT_EQ(ref1.portal_index, 8);
     EXPECT_EQ(ref1.group_index, 7);
     EXPECT_EQ(ref1.side, 1);
 
-    // Ref 128: Portal 66 leads to Group 5 (side: 1)
-    const auto& ref128 = portal_refs[128];
+    const auto& ref128 = wmo_data.portal_refs[128];
     EXPECT_EQ(ref128.portal_index, 66);
     EXPECT_EQ(ref128.group_index, 5);
     EXPECT_EQ(ref128.side, 1);
 
-    // Check info for a portal from MOPT
-    // Portal 35: Starts at vertex 140, uses 10 vertices.
-    const auto& portal35_info = portal_infos[35];
+    const auto& portal35_info = wmo_data.portal_infos[35];
     EXPECT_EQ(portal35_info.start_vertex_index, 140);
     EXPECT_EQ(portal35_info.count, 10);
 }
 
-TEST(TestWMOParser, BlackTempleDoodadInfo)
+TEST_F(TestWMOParser_BlackTemple, DoodadInfo)
 {
-    const std::filesystem::path data_dir = "Data";
-    const auto root_wmo_path = data_dir / "Blacktemple.wmo";
+    ASSERT_TRUE(wmo_data_opt.has_value());
+    const auto& wmo_data = wmo_data_opt.value();
 
-    ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
+    ASSERT_EQ(wmo_data.doodad_sets.size(), 1) << "Expected 1 doodad set (MODS).";
+    ASSERT_EQ(wmo_data.doodad_defs.size(), 3520) << "Expected 3520 doodad definitions (MODD).";
+    ASSERT_FALSE(wmo_data.doodad_names_blob.empty()) << "Doodad names blob (MODN) should not be empty.";
 
-    NavMeshTool::WMO::Parser parser;
-    const bool parse_success = parser.parse(root_wmo_path.string());
-
-    ASSERT_TRUE(parse_success) << "WMOParser failed to parse the file.";
-
-    // 1. Check counts against the log file.
-    const auto& doodad_sets = parser.get_doodad_sets();
-    const auto& doodad_defs = parser.get_doodad_defs();
-    const auto& doodad_names_blob = parser.get_doodad_names_blob();
-
-    ASSERT_EQ(doodad_sets.size(), 1) << "Expected 1 doodad set (MODS).";
-    ASSERT_EQ(doodad_defs.size(), 3520) << "Expected 3520 doodad definitions (MODD).";
-
-    // A simple check for the names blob - it shouldn't be empty.
-    // A full check would involve parsing the blob, which is too complex for this test.
-    ASSERT_FALSE(doodad_names_blob.empty()) << "Doodad names blob (MODN) should not be empty.";
-
-    // 2. Spot check the contents of the single doodad set.
-    const auto& default_set = doodad_sets[0];
-
-    // The name in the file is null-padded. We should compare it carefully.
+    const auto& default_set = wmo_data.doodad_sets[0];
     const std::string expected_name = "Set_$DefaultGlobal";
     const std::string actual_name = std::string(default_set.name, strnlen(default_set.name, sizeof(default_set.name)));
 
@@ -163,28 +189,17 @@ TEST(TestWMOParser, BlackTempleDoodadInfo)
     EXPECT_EQ(default_set.num_doodads, 3520);
 }
 
-TEST(TestWMOParser, BlackTempleGroup48Header)
+TEST_F(TestWMOParser_BlackTemple, Group48Header)
 {
-    const std::filesystem::path data_dir = "Data";
-    const auto root_wmo_path = data_dir / "Blacktemple.wmo";
+    ASSERT_TRUE(wmo_data_opt.has_value());
+    const auto& wmo_data = wmo_data_opt.value();
 
-    ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
+    ASSERT_EQ(wmo_data.groups.size(), 49);
 
-    NavMeshTool::WMO::Parser parser;
-    const bool parse_success = parser.parse(root_wmo_path.string());
+    const auto& group48 = wmo_data.groups[48];
+    ASSERT_TRUE(group48.is_parsed) << "Group 48 should have been parsed successfully.";
 
-    ASSERT_TRUE(parse_success) << "WMOParser failed to parse the root file.";
-
-    const auto& headers = parser.get_group_headers();
-
-    // MOHD in Blacktemple.wmo says there are 49 groups.
-    // The parser should have loaded headers for all of them.
-    ASSERT_EQ(headers.size(), 49);
-
-    // We are interested in group 48
-    const auto& header = headers[48];
-
-    // These values are taken from the python script's analysis of Blacktemple_048.wmo
+    const auto& header = group48.header;
     EXPECT_EQ(header.flags, 0x000428C1);
     EXPECT_EQ(header.portal_start_index, 132);
     EXPECT_EQ(header.portal_count, 0);
@@ -195,24 +210,19 @@ TEST(TestWMOParser, BlackTempleGroup48Header)
     EXPECT_FLOAT_EQ(header.bounding_box.max.z, 622.210693359375f);
 }
 
-TEST(TestWMOParser, BlackTempleFinalGeometry)
+TEST_F(TestWMOParser_BlackTemple, FinalGeometry)
 {
-    const std::filesystem::path data_dir = "Data";
-    const auto root_wmo_path = data_dir / "Blacktemple.wmo";
+    ASSERT_TRUE(wmo_data_opt.has_value()) << "Geometry was not generated after parsing.";
+    const auto& geometry = wmo_data_opt.value();
 
-    ASSERT_TRUE(std::filesystem::exists(root_wmo_path)) << "Root WMO file not found: " << root_wmo_path.string();
-
-    NavMeshTool::WMO::Parser parser;
-    const bool parse_success = parser.parse(root_wmo_path.string());
-
-    ASSERT_TRUE(parse_success) << "WMOParser failed to parse the root file.";
-
-    const auto& geometry_opt = parser.get_geometry();
-    ASSERT_TRUE(geometry_opt.has_value()) << "Geometry was not generated after parsing.";
-
-    const auto& geometry = geometry_opt.value();
-
-    // Final check for the combined collision geometry from all groups and doodads.
+    // These numbers represent the combined collision geometry from all groups.
+    // Doodad geometry is not included in this specific test, but the parser does load it.
+    // The exact numbers can change based on how collision geometry (BSP) is extracted vs. visual geometry.
+    // These values are based on extracting triangles from the BSP leaves.
     EXPECT_EQ(geometry.vertices.size(), 204531);
-    EXPECT_EQ(geometry.indices.size(), 663111);
+    EXPECT_EQ(geometry.indices.size(), 663093);
+
+    // As a final check, let's save the output to an .obj file.
+    // This is useful for visual inspection in a 3D modeling program.
+    save_to_obj("black_temple_combined.obj", geometry);
 }

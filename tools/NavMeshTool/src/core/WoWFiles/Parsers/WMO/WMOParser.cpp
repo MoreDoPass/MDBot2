@@ -1,13 +1,14 @@
 #include "WMOParser.h"
+#include "core/WoWFiles/Parsers/M2/M2Parser.h"
 
 #include <QLoggingCategory>
-#include <fstream>
-#include <string>
+#include <cstring>
 #include <vector>
-#include <algorithm>
-#include <iomanip>
 #include <set>
 #include <tuple>
+#include <algorithm>
+#include <filesystem>
+#include <sstream>
 
 Q_LOGGING_CATEGORY(logWMOParser, "navmesh.wmoparser")
 
@@ -16,23 +17,67 @@ namespace NavMeshTool::WMO
 
 namespace
 {
-// Helper function to transform a vertex using doodad definition (position, rotation, scale)
-C3Vector transform_vertex(const C3Vector& vertex, const MODDData& doodad_def)
+/// <summary>
+/// Safely reads a chunk of data from a buffer.
+/// </summary>
+/// <param name="ptr">Pointer to the current position in the buffer.</param>
+/// <param name="remainingSize">Remaining size of the buffer.</param>
+/// <param name="chunkSize">The size of the data chunk to read.</param>
+/// <param name="destination">Vector to store the read data.</param>
+/// <returns>True if the chunk was read successfully, false otherwise.</returns>
+template <typename T>
+bool readChunk(const unsigned char*& ptr, size_t& remainingSize, size_t chunkSize, std::vector<T>& destination)
 {
-    // 1. Scale
+    if (remainingSize < chunkSize)
+    {
+        qCWarning(logWMOParser) << "Cannot read chunk: not enough data. Remaining:" << remainingSize
+                                << "Requested:" << chunkSize;
+        return false;
+    }
+
+    if (chunkSize > 0 && chunkSize % sizeof(T) != 0)
+    {
+        qCWarning(logWMOParser) << "Chunk size" << chunkSize << "is not a multiple of data type size" << sizeof(T);
+        // Do not fail here, just warn. Some chunks can have padding.
+        // Let's adjust to the largest multiple.
+        chunkSize = (chunkSize / sizeof(T)) * sizeof(T);
+    }
+
+    size_t num_elements = (chunkSize == 0) ? 0 : chunkSize / sizeof(T);
+    destination.resize(num_elements);
+
+    if (chunkSize > 0) memcpy(destination.data(), ptr, chunkSize);
+
+    return true;
+}
+
+// Helper to read raw data into a single struct
+template <typename T>
+bool readData(const unsigned char*& ptr, size_t& remainingSize, T& destination)
+{
+    if (remainingSize < sizeof(T))
+    {
+        return false;
+    }
+    memcpy(&destination, ptr, sizeof(T));
+    return true;
+}
+
+// Helper function to transform a vertex using doodad definition (position, rotation, scale)
+C3Vector transformVertex(const C3Vector& vertex, const MODDData& doodad_def)
+{
     C3Vector scaled_vertex = {vertex.x * doodad_def.scale, vertex.y * doodad_def.scale, vertex.z * doodad_def.scale};
 
-    // 2. Rotate (Quaternion to Matrix multiplication)
     const auto& rot = doodad_def.rotation;
-    const float x2 = rot.x * rot.x;
-    const float y2 = rot.y * rot.y;
-    const float z2 = rot.z * rot.z;
-    const float xy = rot.x * rot.y;
-    const float xz = rot.x * rot.z;
-    const float yz = rot.y * rot.z;
-    const float wx = rot.w * rot.x;
-    const float wy = rot.w * rot.y;
-    const float wz = rot.w * rot.z;
+    // The quaternion components are stored as an array: {x, y, z, w}
+    const float x = rot[0];
+    const float y = rot[1];
+    const float z = rot[2];
+    const float w = rot[3];
+
+    const float x2 = x * x, y2 = y * y, z2 = z * z;
+    const float xy = x * y, xz = x * z, yz = y * z;
+    const float wx = w * x, wy = w * y, wz = w * z;
 
     const C3Vector rotated_vertex = {
         scaled_vertex.x * (1.0f - 2.0f * y2 - 2.0f * z2) + scaled_vertex.y * (2.0f * xy - 2.0f * wz) +
@@ -42,449 +87,267 @@ C3Vector transform_vertex(const C3Vector& vertex, const MODDData& doodad_def)
         scaled_vertex.x * (2.0f * xz - 2.0f * wy) + scaled_vertex.y * (2.0f * yz + 2.0f * wx) +
             scaled_vertex.z * (1.0f - 2.0f * x2 - 2.0f * y2)};
 
-    // 3. Translate
-    const C3Vector final_vertex = {rotated_vertex.x + doodad_def.position.x, rotated_vertex.y + doodad_def.position.y,
-                                   rotated_vertex.z + doodad_def.position.z};
-
-    return final_vertex;
+    return {rotated_vertex.x + doodad_def.position.x, rotated_vertex.y + doodad_def.position.y,
+            rotated_vertex.z + doodad_def.position.z};
 }
-}  // namespace
 
-Parser::Parser() = default;
-
-bool Parser::parse(const std::string& root_wmo_path)
+bool parseGroupWmo(const std::vector<unsigned char>& buffer, WmoGroupData& outGroupData)
 {
-    qCDebug(logWMOParser) << "Starting to parse WMO file:" << QString::fromStdString(root_wmo_path);
+    const unsigned char* currentPtr = buffer.data();
+    size_t remainingSize = buffer.size();
 
-    m_root_data = parseRootFile(root_wmo_path);
-    if (!m_root_data)
-    {
-        qCWarning(logWMOParser) << "Failed to parse root WMO file:" << QString::fromStdString(root_wmo_path);
-        m_final_geometry = std::nullopt;
+    // Skip MVER
+    currentPtr += 12;
+    remainingSize -= 12;
+
+    ChunkHeader mogpSuperChunkHeader;
+    if (!readData(currentPtr, remainingSize, mogpSuperChunkHeader) || memcmp(mogpSuperChunkHeader.id, "PGOM", 4) != 0)
         return false;
-    }
 
-    WmoGeometry final_geometry;
-    uint32_t current_vertex_offset = 0;
+    currentPtr += sizeof(ChunkHeader);
+    remainingSize -= sizeof(ChunkHeader);
 
-    std::string base_path = root_wmo_path;
-    base_path = base_path.substr(0, base_path.length() - 4);  // Remove .wmo
+    const unsigned char* mogpEndPtr = currentPtr + mogpSuperChunkHeader.size;
+    if (!readData(currentPtr, remainingSize, outGroupData.header)) return false;
 
-    for (int i = 0; i < m_root_data->header.nGroups; ++i)
+    currentPtr += sizeof(MOGPHeader);
+    remainingSize -= sizeof(MOGPHeader);
+
+    while (currentPtr < mogpEndPtr && remainingSize >= sizeof(ChunkHeader))
     {
-        std::stringstream group_path_ss;
-        group_path_ss << base_path << "_" << std::setw(3) << std::setfill('0') << i << ".wmo";
-        const std::string group_path = group_path_ss.str();
+        ChunkHeader subChunkHeader;
+        if (!readData(currentPtr, remainingSize, subChunkHeader)) break;
 
-        auto group_data_opt = parseGroupFile(group_path);
-        if (!group_data_opt)
+        currentPtr += sizeof(ChunkHeader);
+        remainingSize -= sizeof(ChunkHeader);
+
+        const unsigned char* subChunkDataPtr = currentPtr;
+        size_t subChunkDataRemainingSize = subChunkHeader.size;
+
+        if (memcmp(subChunkHeader.id, "TVOM", 4) == 0)  // MOVT
         {
-            qCWarning(logWMOParser) << "Failed to parse group file, skipping:" << QString::fromStdString(group_path);
-            continue;
+            const auto num_vertices = subChunkHeader.size / sizeof(C3Vector);
+            outGroupData.vertices.resize(num_vertices);
+            std::vector<C3Vector> positions;
+            if (!readChunk(subChunkDataPtr, subChunkDataRemainingSize, subChunkHeader.size, positions)) return false;
+            for (size_t i = 0; i < num_vertices; ++i) outGroupData.vertices[i].position = positions[i];
+        }
+        else if (memcmp(subChunkHeader.id, "RNOM", 4) == 0)  // MONR
+        {
+            std::vector<C3Vector> normals;
+            if (!readChunk(subChunkDataPtr, subChunkDataRemainingSize, subChunkHeader.size, normals)) return false;
+            for (size_t i = 0; i < normals.size(); ++i) outGroupData.vertices[i].normal = normals[i];
+        }
+        else if (memcmp(subChunkHeader.id, "YPOM", 4) == 0)  // MOPY
+        {
+            if (!readChunk(subChunkDataPtr, subChunkDataRemainingSize, subChunkHeader.size, outGroupData.polygons))
+                return false;
+        }
+        else if (memcmp(subChunkHeader.id, "IVOM", 4) == 0)  // MOVI
+        {
+            if (!readChunk(subChunkDataPtr, subChunkDataRemainingSize, subChunkHeader.size, outGroupData.indices))
+                return false;
+        }
+        else if (memcmp(subChunkHeader.id, "NBOM", 4) == 0)  // MOBN
+        {
+            if (!readChunk(subChunkDataPtr, subChunkDataRemainingSize, subChunkHeader.size, outGroupData.bsp_nodes))
+                return false;
+        }
+        else if (memcmp(subChunkHeader.id, "RBOM", 4) == 0)  // MOBR
+        {
+            if (!readChunk(subChunkDataPtr, subChunkDataRemainingSize, subChunkHeader.size, outGroupData.bsp_refs))
+                return false;
         }
 
-        auto& group_data = *group_data_opt;
-
-        m_group_headers.push_back(group_data.header);
-
-        if (group_data.vertices.empty() || group_data.indices.empty() || group_data.bsp_nodes.empty() ||
-            group_data.bsp_refs.empty())
-        {
-            qCDebug(logWMOParser) << "Group file has no collision geometry, skipping:"
-                                  << QString::fromStdString(group_path);
-            continue;
-        }
-
-        std::set<std::tuple<uint16_t, uint16_t, uint16_t>> collision_triangles;
-
-        for (const auto& node : group_data.bsp_nodes)
-        {
-            if (node.flags & 0x4)  // Is leaf node
-            {
-                for (int j = 0; j < node.nFaces; ++j)
-                {
-                    const uint16_t mobr_ref = group_data.bsp_refs[node.faceStart + j];
-                    const uint32_t triangle_start_index = mobr_ref * 3;
-
-                    if (triangle_start_index + 2 < group_data.indices.size())
-                    {
-                        std::tuple<uint16_t, uint16_t, uint16_t> triangle = {
-                            group_data.indices[triangle_start_index], group_data.indices[triangle_start_index + 1],
-                            group_data.indices[triangle_start_index + 2]};
-
-                        uint16_t* p = &std::get<0>(triangle);
-                        std::sort(p, p + 3);
-
-                        collision_triangles.insert(triangle);
-                    }
-                }
-            }
-        }
-
-        for (const auto& vertex : group_data.vertices)
-        {
-            final_geometry.vertices.push_back(vertex.position);
-        }
-
-        for (const auto& triangle : collision_triangles)
-        {
-            final_geometry.indices.push_back(std::get<0>(triangle) + current_vertex_offset);
-            final_geometry.indices.push_back(std::get<1>(triangle) + current_vertex_offset);
-            final_geometry.indices.push_back(std::get<2>(triangle) + current_vertex_offset);
-        }
-
-        current_vertex_offset += group_data.vertices.size();
-        m_all_group_data.push_back(std::move(group_data));
+        currentPtr += subChunkHeader.size;
+        remainingSize -= subChunkHeader.size;
     }
-
-    // Doodad (M2) Geometry Processing
-    if (!m_root_data->doodad_defs.empty() && !m_root_data->doodad_names_blob.empty())
-    {
-        for (const auto& doodad_def : m_root_data->doodad_defs)
-        {
-            if (doodad_def.name_offset >= m_root_data->doodad_names_blob.size()) continue;
-
-            std::string m2_path(&m_root_data->doodad_names_blob[doodad_def.name_offset]);
-            if (m2_path.empty()) continue;
-
-            // The calling environment is responsible for making this path valid,
-            // likely by extracting the file from MPQ archives into a location
-            // where it can be resolved.
-            auto m2_geom_opt = m_m2_parser.parse(m2_path);
-
-            if (!m2_geom_opt || m2_geom_opt->vertices.empty() || m2_geom_opt->indices.empty())
-            {
-                qCDebug(logWMOParser) << "M2 Doodad has no collision geometry, skipping:"
-                                      << QString::fromStdString(m2_path);
-                continue;
-            }
-
-            auto& m2_geom = *m2_geom_opt;
-            const uint32_t m2_vertex_count_before_add = final_geometry.vertices.size();
-
-            for (const auto& local_vertex : m2_geom.vertices)
-            {
-                // The C3Vector from m2 needs to be converted to a wmo C3Vector
-                const C3Vector wmo_vertex = {local_vertex.x, local_vertex.y, local_vertex.z};
-                final_geometry.vertices.push_back(transform_vertex(wmo_vertex, doodad_def));
-            }
-
-            for (const auto& index : m2_geom.indices)
-            {
-                final_geometry.indices.push_back(index + m2_vertex_count_before_add);
-            }
-        }
-    }
-
-    qCDebug(logWMOParser) << "Successfully parsed WMO and its doodads. Total vertices:"
-                          << final_geometry.vertices.size()
-                          << "Total collision indices:" << final_geometry.indices.size();
-
-    m_final_geometry = final_geometry;
     return true;
 }
 
-const std::optional<WmoGeometry>& Parser::get_geometry() const
+bool parseRootWmo(const std::vector<unsigned char>& buffer, WmoData& outData)
 {
-    return m_final_geometry;
-}
+    const unsigned char* currentPtr = buffer.data();
+    size_t remainingSize = buffer.size();
 
-const std::vector<MOGPHeader>& Parser::get_group_headers() const
-{
-    return m_group_headers;
-}
-
-const std::vector<WmoGroupData>& Parser::get_all_group_data() const
-{
-    return m_all_group_data;
-}
-
-std::vector<GroupInfo> Parser::get_groups() const
-{
-    if (!m_root_data) return {};
-
-    std::vector<GroupInfo> result;
-    result.reserve(m_root_data->group_info.size());
-
-    for (const auto& mogi_data : m_root_data->group_info)
-    {
-        GroupInfo info;
-        info.flags = mogi_data.flags;
-        info.bounding_box = mogi_data.bounding_box;
-
-        if (mogi_data.name_offset != -1 && mogi_data.name_offset < m_root_data->group_names_blob.size())
-        {
-            info.name = std::string(&m_root_data->group_names_blob[mogi_data.name_offset]);
-        }
-        else
-        {
-            info.name = "N/A";
-        }
-
-        result.push_back(info);
-    }
-
-    return result;
-}
-
-const std::vector<C3Vector>& Parser::get_portal_vertices() const
-{
-    if (!m_root_data)
-    {
-        static const std::vector<C3Vector> empty_vec;
-        return empty_vec;
-    }
-    return m_root_data->portal_vertices;
-}
-
-const std::vector<SMOPortalInfo>& Parser::get_portal_infos() const
-{
-    if (!m_root_data)
-    {
-        static const std::vector<SMOPortalInfo> empty_vec;
-        return empty_vec;
-    }
-    return m_root_data->portal_info;
-}
-
-const std::vector<SMOPortalRef>& Parser::get_portal_refs() const
-{
-    if (!m_root_data)
-    {
-        static const std::vector<SMOPortalRef> empty_vec;
-        return empty_vec;
-    }
-    return m_root_data->portal_refs;
-}
-
-const std::vector<SMODoodadSet>& Parser::get_doodad_sets() const
-{
-    if (!m_root_data)
-    {
-        static const std::vector<SMODoodadSet> empty_vec;
-        return empty_vec;
-    }
-    return m_root_data->doodad_sets;
-}
-
-const std::vector<MODDData>& Parser::get_doodad_defs() const
-{
-    if (!m_root_data)
-    {
-        static const std::vector<MODDData> empty_vec;
-        return empty_vec;
-    }
-    return m_root_data->doodad_defs;
-}
-
-const std::vector<char>& Parser::get_doodad_names_blob() const
-{
-    if (!m_root_data)
-    {
-        static const std::vector<char> empty_vec;
-        return empty_vec;
-    }
-    return m_root_data->doodad_names_blob;
-}
-
-std::optional<WmoRootData> Parser::parseRootFile(const std::string& root_path) const
-{
-    std::ifstream file(root_path, std::ios::binary);
-    if (!file)
-    {
-        qCWarning(logWMOParser) << "Could not open WMO root file:" << QString::fromStdString(root_path);
-        return std::nullopt;
-    }
-
-    WmoRootData root_data;
-    bool mver_found = false;
-    bool mohd_found = false;
-
-    while (file.peek() != EOF)
+    while (remainingSize >= sizeof(ChunkHeader))
     {
         ChunkHeader header;
-        file.read(reinterpret_cast<char*>(&header), sizeof(header));
-        if (file.gcount() != sizeof(header)) break;
+        if (!readData(currentPtr, remainingSize, header)) break;
 
-        const auto chunk_id = std::string(header.id, 4);
-        const auto next_chunk_pos = static_cast<long long>(file.tellg()) + header.size;
+        currentPtr += sizeof(ChunkHeader);
+        remainingSize -= sizeof(ChunkHeader);
 
-        if (chunk_id == "REVM")  // MVER
+        if (remainingSize < header.size) return false;
+
+        const unsigned char* chunk_data_ptr = currentPtr;
+        size_t chunk_data_remaining_size = header.size;
+
+        if (memcmp(header.id, "DHOM", 4) == 0)
         {
-            MVERData mver_data;
-            file.read(reinterpret_cast<char*>(&mver_data), sizeof(mver_data));
-            if (mver_data.version != 17)
-            {
-                qCWarning(logWMOParser) << "Unsupported WMO version" << mver_data.version
-                                        << "in root file:" << QString::fromStdString(root_path);
-                return std::nullopt;
-            }
-            mver_found = true;
+            if (header.size != sizeof(MOHDData)) return false;
+            memcpy(&outData.header, chunk_data_ptr, sizeof(MOHDData));
         }
-        else if (chunk_id == "DHOM")  // MOHD
+        else if (memcmp(header.id, "NGOM", 4) == 0)
         {
-            file.read(reinterpret_cast<char*>(&root_data.header), sizeof(root_data.header));
-            mohd_found = true;
+            outData.group_names_blob.assign(chunk_data_ptr, chunk_data_ptr + header.size);
         }
-        else if (chunk_id == "NGOM")  // MOGN
+        else if (memcmp(header.id, "IGOM", 4) == 0)
         {
-            root_data.group_names_blob.resize(header.size);
-            file.read(root_data.group_names_blob.data(), header.size);
+            if (!readChunk(chunk_data_ptr, chunk_data_remaining_size, header.size, outData.group_info)) return false;
         }
-        else if (chunk_id == "IGOM")  // MOGI
+        else if (memcmp(header.id, "SDOM", 4) == 0)
         {
-            root_data.group_info.resize(header.size / sizeof(MOGIData));
-            file.read(reinterpret_cast<char*>(root_data.group_info.data()), header.size);
+            if (!readChunk(chunk_data_ptr, chunk_data_remaining_size, header.size, outData.doodad_sets)) return false;
         }
-        else if (chunk_id == "VPOM")  // MOPV
+        else if (memcmp(header.id, "NDOM", 4) == 0)
         {
-            root_data.portal_vertices.resize(header.size / sizeof(C3Vector));
-            file.read(reinterpret_cast<char*>(root_data.portal_vertices.data()), header.size);
+            outData.doodad_names_blob.assign(chunk_data_ptr, chunk_data_ptr + header.size);
         }
-        else if (chunk_id == "TPOM")  // MOPT
+        else if (memcmp(header.id, "DDOM", 4) == 0)
         {
-            root_data.portal_info.resize(header.size / sizeof(SMOPortalInfo));
-            file.read(reinterpret_cast<char*>(root_data.portal_info.data()), header.size);
+            if (!readChunk(chunk_data_ptr, chunk_data_remaining_size, header.size, outData.doodad_defs)) return false;
         }
-        else if (chunk_id == "RPOM")  // MOPR
+        else if (memcmp(header.id, "VPOM", 4) == 0)  // MOPV
         {
-            root_data.portal_refs.resize(header.size / sizeof(SMOPortalRef));
-            file.read(reinterpret_cast<char*>(root_data.portal_refs.data()), header.size);
+            if (!readChunk(chunk_data_ptr, chunk_data_remaining_size, header.size, outData.portal_vertices))
+                return false;
         }
-        else if (chunk_id == "SDOM")  // MODS
+        else if (memcmp(header.id, "TPOM", 4) == 0)  // MOPT
         {
-            root_data.doodad_sets.resize(header.size / sizeof(SMODoodadSet));
-            file.read(reinterpret_cast<char*>(root_data.doodad_sets.data()), header.size);
+            if (!readChunk(chunk_data_ptr, chunk_data_remaining_size, header.size, outData.portal_infos)) return false;
         }
-        else if (chunk_id == "NDOM")  // MODN
+        else if (memcmp(header.id, "RPOM", 4) == 0)  // MOPR
         {
-            root_data.doodad_names_blob.resize(header.size);
-            file.read(root_data.doodad_names_blob.data(), header.size);
-        }
-        else if (chunk_id == "DDOM")  // MODD
-        {
-            root_data.doodad_defs.resize(header.size / sizeof(MODDData));
-            file.read(reinterpret_cast<char*>(root_data.doodad_defs.data()), header.size);
+            if (!readChunk(chunk_data_ptr, chunk_data_remaining_size, header.size, outData.portal_refs)) return false;
         }
 
-        file.seekg(next_chunk_pos);
+        currentPtr += header.size;
+        remainingSize -= header.size;
     }
-
-    if (!mver_found || !mohd_found)
-    {
-        qCWarning(logWMOParser) << "Root WMO file is missing MVER or MOHD chunk:" << QString::fromStdString(root_path);
-        return std::nullopt;
-    }
-
-    return root_data;
+    return true;
 }
+}  // namespace
 
-std::optional<WmoGroupData> Parser::parseGroupFile(const std::string& group_path) const
+/// <summary>
+/// Parses the root WMO buffer to extract metadata and chunk information. This is a free function.
+/// </summary>
+std::optional<WmoData> Parser::parse(const std::string& rootWmoName, const std::vector<unsigned char>& rootWmoBuffer,
+                                     const FileProvider& fileProvider) const
 {
-    std::ifstream file(group_path, std::ios::binary);
-    if (!file)
+    qCInfo(logWMOParser) << "Starting WMO parsing for" << QString::fromStdString(rootWmoName)
+                         << ". Buffer size:" << rootWmoBuffer.size();
+
+    if (rootWmoBuffer.size() < sizeof(ChunkHeader))
     {
-        qCWarning(logWMOParser) << "Could not open WMO group file:" << QString::fromStdString(group_path);
+        qCWarning(logWMOParser) << "Initial buffer size is too small for even a single chunk header.";
         return std::nullopt;
     }
 
-    // MVER
-    ChunkHeader mver_header;
-    file.read(reinterpret_cast<char*>(&mver_header), sizeof(mver_header));
-    if (std::string(mver_header.id, 4) != "REVM")
+    WmoData wmoData;
+
+    if (!parseRootWmo(rootWmoBuffer, wmoData))
     {
-        qCWarning(logWMOParser) << "Expected MVER chunk, but got" << mver_header.id
-                                << "in file:" << QString::fromStdString(group_path);
+        qCWarning(logWMOParser) << "Failed to parse root WMO buffer.";
         return std::nullopt;
     }
 
-    MVERData mver_data;
-    file.read(reinterpret_cast<char*>(&mver_data), sizeof(mver_data));
-    if (mver_data.version != 17)
+    wmoData.groups.resize(wmoData.header.nGroups);
+    const std::string wmo_base_name = std::filesystem::path(rootWmoName).stem().string();
+
+    // Parse group files
+    for (uint32_t i = 0; i < wmoData.header.nGroups; ++i)
     {
-        qCWarning(logWMOParser) << "Unsupported WMO version" << mver_data.version
-                                << "in file:" << QString::fromStdString(group_path);
-        return std::nullopt;
-    }
+        std::stringstream group_filename_ss;
+        group_filename_ss << wmo_base_name << "_" << std::setw(3) << std::setfill('0') << i << ".wmo";
+        const std::string group_name = group_filename_ss.str();
 
-    // MOGP
-    ChunkHeader mogp_super_chunk_header;
-    file.read(reinterpret_cast<char*>(&mogp_super_chunk_header), sizeof(mogp_super_chunk_header));
-    if (std::string(mogp_super_chunk_header.id, 4) != "PGOM")
-    {
-        qCWarning(logWMOParser) << "Expected MOGP chunk, but got" << mogp_super_chunk_header.id
-                                << "in file:" << QString::fromStdString(group_path);
-        return std::nullopt;
-    }
+        auto groupBufferOpt = fileProvider(group_name);
 
-    const auto mogp_end_pos = static_cast<long long>(file.tellg()) + mogp_super_chunk_header.size;
-    WmoGroupData group_data;
-    file.read(reinterpret_cast<char*>(&group_data.header), sizeof(group_data.header));
-
-    while (file.tellg() < mogp_end_pos)
-    {
-        ChunkHeader sub_chunk_header;
-        file.read(reinterpret_cast<char*>(&sub_chunk_header), sizeof(sub_chunk_header));
-
-        if (file.gcount() != sizeof(sub_chunk_header)) break;
-
-        const auto sub_chunk_id = std::string(sub_chunk_header.id, 4);
-        const auto next_chunk_pos = static_cast<long long>(file.tellg()) + sub_chunk_header.size;
-
-        if (sub_chunk_id == "TVOM")  // MOVT - Vertex positions only
+        if (!groupBufferOpt)
         {
-            const auto num_vertices = sub_chunk_header.size / sizeof(C3Vector);
-            group_data.vertices.resize(num_vertices);
-            // We need to read only positions into a temporary buffer first
-            std::vector<C3Vector> positions(num_vertices);
-            file.read(reinterpret_cast<char*>(positions.data()), sub_chunk_header.size);
-            for (size_t i = 0; i < num_vertices; ++i) group_data.vertices[i].position = positions[i];
+            qCWarning(logWMOParser) << "Could not get group WMO file:" << QString::fromStdString(group_name);
+            continue;
         }
-        else if (sub_chunk_id == "RNOM")  // MONR - Normals
+
+        WmoGroupData& groupData = wmoData.groups[i];
+        groupData.is_parsed = parseGroupWmo(*groupBufferOpt, groupData);
+
+        if (groupData.is_parsed)
         {
-            const auto num_normals = sub_chunk_header.size / sizeof(C3Vector);
-            if (num_normals == group_data.vertices.size())
+            uint32_t vertexOffset = static_cast<uint32_t>(wmoData.vertices.size());
+            std::set<std::tuple<uint16_t, uint16_t, uint16_t>> collision_triangles;
+
+            // Use collision BSP if available, otherwise use all visual triangles.
+            if ((groupData.header.flags & 0x800) && !groupData.bsp_nodes.empty() && !groupData.bsp_refs.empty())
             {
-                std::vector<C3Vector> normals(num_normals);
-                file.read(reinterpret_cast<char*>(normals.data()), sub_chunk_header.size);
-                for (size_t i = 0; i < num_normals; ++i) group_data.vertices[i].normal = normals[i];
+                for (const auto& node : groupData.bsp_nodes)
+                {
+                    if (node.flags & 0x4)  // Is leaf node
+                    {
+                        for (int j = 0; j < node.nFaces; ++j)
+                        {
+                            const uint16_t tri_index_in_movi = groupData.bsp_refs[node.faceStart + j];
+
+                            if ((tri_index_in_movi * 3 + 2) < groupData.indices.size())
+                            {
+                                uint16_t tri[3] = {groupData.indices[tri_index_in_movi * 3],
+                                                   groupData.indices[tri_index_in_movi * 3 + 1],
+                                                   groupData.indices[tri_index_in_movi * 3 + 2]};
+                                std::sort(std::begin(tri), std::end(tri));
+                                collision_triangles.insert({tri[0], tri[1], tri[2]});
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                for (size_t j = 0; j < groupData.indices.size() / 3; ++j)
+                {
+                    uint16_t tri[3] = {groupData.indices[j * 3], groupData.indices[j * 3 + 1],
+                                       groupData.indices[j * 3 + 2]};
+                    std::sort(std::begin(tri), std::end(tri));
+                    collision_triangles.insert({tri[0], tri[1], tri[2]});
+                }
+            }
+
+            for (const auto& v : groupData.vertices) wmoData.vertices.push_back(v.position);
+            for (const auto& t : collision_triangles)
+            {
+                wmoData.indices.push_back(std::get<0>(t) + vertexOffset);
+                wmoData.indices.push_back(std::get<1>(t) + vertexOffset);
+                wmoData.indices.push_back(std::get<2>(t) + vertexOffset);
             }
         }
-        else if (sub_chunk_id == "VTOM")  // MOTV - Texture Coordinates
-        {
-            const auto num_tex_coords = sub_chunk_header.size / sizeof(C2Vector);
-            if (num_tex_coords == group_data.vertices.size())
-            {
-                std::vector<C2Vector> tex_coords(num_tex_coords);
-                file.read(reinterpret_cast<char*>(tex_coords.data()), sub_chunk_header.size);
-                for (size_t i = 0; i < num_tex_coords; ++i) group_data.vertices[i].tex_coords = tex_coords[i];
-            }
-        }
-        else if (sub_chunk_id == "YPOM")  // MOPY
-        {
-            group_data.polygons.resize(sub_chunk_header.size / sizeof(SMOPoly));
-            file.read(reinterpret_cast<char*>(group_data.polygons.data()), sub_chunk_header.size);
-        }
-        else if (sub_chunk_id == "IVOM")  // MOVI
-        {
-            group_data.indices.resize(sub_chunk_header.size / sizeof(uint16_t));
-            file.read(reinterpret_cast<char*>(group_data.indices.data()), sub_chunk_header.size);
-        }
-        else if (sub_chunk_id == "NBOM")  // MOBN
-        {
-            group_data.bsp_nodes.resize(sub_chunk_header.size / sizeof(CAaBspNode));
-            file.read(reinterpret_cast<char*>(group_data.bsp_nodes.data()), sub_chunk_header.size);
-        }
-        else if (sub_chunk_id == "RBOM")  // MOBR
-        {
-            group_data.bsp_refs.resize(sub_chunk_header.size / sizeof(uint16_t));
-            file.read(reinterpret_cast<char*>(group_data.bsp_refs.data()), sub_chunk_header.size);
-        }
-
-        file.seekg(next_chunk_pos);
     }
 
-    return group_data;
+    // Parse M2 Doodads
+    M2::Parser m2Parser;
+    for (const auto& doodadDef : wmoData.doodad_defs)
+    {
+        if (doodadDef.name_offset >= wmoData.doodad_names_blob.size()) continue;
+
+        std::string doodadName(&wmoData.doodad_names_blob[doodadDef.name_offset]);
+        auto m2BufferOpt = fileProvider(doodadName);
+
+        if (!m2BufferOpt) continue;
+
+        auto m2GeomOpt = m2Parser.parse(*m2BufferOpt);
+        if (m2GeomOpt && !m2GeomOpt->vertices.empty())
+        {
+            uint32_t vertexOffset = static_cast<uint32_t>(wmoData.vertices.size());
+            for (const auto& v : m2GeomOpt->vertices)
+            {
+                const WMO::C3Vector wmo_vertex = {v.x, v.y, v.z};
+                wmoData.vertices.push_back(transformVertex(wmo_vertex, doodadDef));
+            }
+            for (const auto& i : m2GeomOpt->indices) wmoData.indices.push_back(i + vertexOffset);
+        }
+    }
+
+    qCDebug(logWMOParser) << "Successfully parsed root WMO. Groups to load:" << wmoData.header.nGroups;
+    return wmoData;
 }
 
 }  // namespace NavMeshTool::WMO

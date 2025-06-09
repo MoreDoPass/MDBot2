@@ -94,8 +94,8 @@ set(NAVTOOL_TEST_SOURCES
     #tests/WDT/TestWdtParser.cpp
     #tests/StormLib/TestStormLibIntegration.cpp
     #tests/ADT/TestADTParser.cpp
-    tests/M2/TestM2Parser.cpp
-    #tests/WMO/TestWMOParser.cpp
+    #tests/M2/TestM2Parser.cpp
+    tests/WMO/TestWMOParser.cpp
     # Добавляйте сюда другие Test*.cpp файлы
 )
 
