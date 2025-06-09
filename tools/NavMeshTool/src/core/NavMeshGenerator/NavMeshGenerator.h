@@ -10,6 +10,7 @@
 #include "core/WoWFiles/Parsers/WDT/WDTParser.h"
 #include "core/WoWFiles/Parsers/ADT/ADTParser.h"
 #include "core/WoWFiles/Parsers/WMO/WMOParser.h"
+#include "core/WoWFiles/Parsers/M2/M2Parser.h"
 
 // Прямое объявление (Forward declaration) MpqManager, чтобы не подключать его заголовок сюда
 // Это уменьшает связанность и время компиляции.
@@ -98,6 +99,7 @@ class NavMeshGenerator
     NavMeshTool::WDT::Parser m_wdtParser;        // Экземпляр парсера WDT
     NavMeshTool::ADT::Parser m_adtParser;        // Экземпляр парсера ADT
     NavMeshTool::WMO::Parser m_wmoParser;        // Экземпляр парсера WMO
+    NavMeshTool::M2::Parser m_m2Parser;          // Экземпляр парсера M2
     NavMeshTool::WDT::WDTData m_currentWdtData;  // Данные, извлеченные из текущего WDT файла
 
     // Собранная геометрия мира
@@ -116,8 +118,21 @@ class NavMeshGenerator
 
     void processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
 
-    // Приватные методы для обработки составных частей ADT
+    /**
+     * @brief Обрабатывает геометрию ландшафта одного ADT-файла.
+     * @details Этот метод извлекает данные о вершинах из каждого чанка (MCNK) ADT.
+     * Ключевой особенностью является то, что заголовок MCNK уже содержит
+     * абсолютные мировые координаты центра чанка. Метод использует эти координаты
+     * напрямую, без дополнительных преобразований. Вершины ландшафта (из MCVT)
+     * представляют собой относительные смещения по высоте от этой центральной точки.
+     * Метод корректно рассчитывает итоговые мировые координаты для каждой из 145 вершин
+     * (9x9 внешних и 8x8 внутренних) и добавляет их в глобальный пул вершин.
+     * @param adtData Спарсенные данные ADT.
+     * @param row Индекс строки ADT на карте мира (не используется напрямую, для контекста).
+     * @param col Индекс колонки ADT на карте мира (не используется напрямую, для контекста).
+     */
     void processAdtTerrain(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
+
     void processAdtWmos(const NavMeshTool::ADT::ADTData& adtData);
     void processAdtM2s(const NavMeshTool::ADT::ADTData& adtData);
 
