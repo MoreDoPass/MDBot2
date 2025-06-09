@@ -1,13 +1,37 @@
 #include <gtest/gtest.h>
 #include "core/WoWFiles/Parsers/M2/M2Parser.h"
 
-#include <QCoreApplication>
-#include <QDir>
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <fstream>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 using namespace NavMeshTool::M2;
+
+// Вспомогательная функция для чтения файла в буфер
+std::vector<unsigned char> readFileToBuffer(const std::string& filePath)
+{
+    std::ifstream file(filePath, std::ios::binary | std::ios::ate);
+    if (!file.is_open())
+    {
+        ADD_FAILURE() << "Failed to open file for reading: " << filePath;
+        return {};
+    }
+
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    std::vector<unsigned char> buffer(size);
+    if (!file.read(reinterpret_cast<char*>(buffer.data()), size))
+    {
+        ADD_FAILURE() << "Failed to read file into buffer: " << filePath;
+        return {};
+    }
+    return buffer;
+}
 
 // Структура для хранения наших тестовых данных
 struct M2TestData
@@ -22,19 +46,18 @@ struct M2TestData
 class M2ParserTest : public ::testing::TestWithParam<M2TestData>
 {
    protected:
-    static std::string testDataPath;
+    static fs::path testDataPath;
 
     static void SetUpTestSuite()
     {
-        QString executablePath = QCoreApplication::applicationDirPath();
-        QDir executableDir(executablePath);
-        testDataPath = executableDir.filePath("Data/M2TestData").toStdString();
-        ASSERT_TRUE(QDir(QString::fromStdString(testDataPath)).exists())
-            << "Директория с тестовыми данными не найдена: " << testDataPath;
+        fs::path executablePath = fs::current_path();
+        testDataPath = executablePath / "Data" / "M2TestData";
+        ASSERT_TRUE(fs::exists(testDataPath) && fs::is_directory(testDataPath))
+            << "Директория с тестовыми данными не найдена: " << testDataPath.string();
     }
 };
 
-std::string M2ParserTest::testDataPath;
+std::filesystem::path M2ParserTest::testDataPath;
 
 // =======================================================================
 // ▼ СЮДА НУЖНО ВСТАВИТЬ ВЫВОД ИЗ PYTHON-СКРИПТА ▼
@@ -53,11 +76,13 @@ TEST_P(M2ParserTest, ParseM2AndCheckCollisionGeometry)
 {
     M2TestData testData = GetParam();
 
-    std::string filePath =
-        QDir(QString::fromStdString(testDataPath)).filePath(QString::fromStdString(testData.fileName)).toStdString();
+    fs::path filePath = testDataPath / testData.fileName;
+
+    std::vector<unsigned char> buffer = readFileToBuffer(filePath.string());
+    ASSERT_FALSE(buffer.empty()) << "Could not read file or file is empty: " << filePath.string();
 
     Parser parser;
-    auto result = parser.parse(filePath);
+    auto result = parser.parse(buffer);
 
     ASSERT_TRUE(result.has_value()) << "Не удалось распарсить файл: " << testData.fileName;
 

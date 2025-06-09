@@ -2,7 +2,7 @@
 
 #include <QLoggingCategory>
 
-#include <fstream>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -11,33 +11,29 @@ Q_LOGGING_CATEGORY(logM2Parser, "navmesh.m2parser")
 namespace NavMeshTool::M2
 {
 
-std::optional<CollisionGeometry> Parser::parse(const std::string& file_path) const
+std::optional<CollisionGeometry> Parser::parse(const std::vector<unsigned char>& dataBuffer) const
 {
-    std::ifstream file(file_path, std::ios::binary);
-    if (!file)
+    if (dataBuffer.size() < sizeof(M2Header))
     {
-        qCWarning(logM2Parser) << "Could not open file:" << QString::fromStdString(file_path);
+        qCWarning(logM2Parser) << "Buffer size is too small for an M2 header. Size:" << dataBuffer.size();
         return std::nullopt;
     }
 
+    const unsigned char* currentPtr = dataBuffer.data();
+    const size_t totalSize = dataBuffer.size();
+
     M2Header header;
-    file.read(reinterpret_cast<char*>(&header), sizeof(header));
-    if (file.gcount() != sizeof(header))
-    {
-        qCWarning(logM2Parser) << "Could not read M2 header from file:" << QString::fromStdString(file_path);
-        return std::nullopt;
-    }
+    memcpy(&header, currentPtr, sizeof(header));
 
     if (std::string(header.magic, 4) != "MD20")
     {
-        qCWarning(logM2Parser) << "Invalid M2 magic in file:" << QString::fromStdString(file_path);
+        qCWarning(logM2Parser) << "Invalid M2 magic.";
         return std::nullopt;
     }
 
     if (header.version != 264)
     {
-        qCWarning(logM2Parser) << "Unsupported M2 version" << header.version
-                               << "in file:" << QString::fromStdString(file_path);
+        qCWarning(logM2Parser) << "Unsupported M2 version" << header.version;
         return std::nullopt;
     }
 
@@ -45,46 +41,42 @@ std::optional<CollisionGeometry> Parser::parse(const std::string& file_path) con
 
     if (header.num_collision_vertices > 0 && header.offset_collision_vertices > 0)
     {
-        geom.vertices.resize(header.num_collision_vertices);
-        file.seekg(header.offset_collision_vertices);
-        file.read(reinterpret_cast<char*>(geom.vertices.data()), header.num_collision_vertices * sizeof(C3Vector));
-        if (file.gcount() != static_cast<std::streamsize>(header.num_collision_vertices * sizeof(C3Vector)))
+        size_t verticesSize = header.num_collision_vertices * sizeof(C3Vector);
+        if (header.offset_collision_vertices + verticesSize > totalSize)
         {
-            qCWarning(logM2Parser) << "Could not read collision vertices from file:"
-                                   << QString::fromStdString(file_path);
+            qCWarning(logM2Parser) << "Collision vertices data is out of bounds.";
             return std::nullopt;
         }
+        geom.vertices.resize(header.num_collision_vertices);
+        memcpy(geom.vertices.data(), currentPtr + header.offset_collision_vertices, verticesSize);
     }
 
     if (header.num_collision_indices > 0 && header.offset_collision_indices > 0)
     {
-        geom.indices.resize(header.num_collision_indices);
-        file.seekg(header.offset_collision_indices);
-        file.read(reinterpret_cast<char*>(geom.indices.data()), header.num_collision_indices * sizeof(uint16_t));
-        if (file.gcount() != static_cast<std::streamsize>(header.num_collision_indices * sizeof(uint16_t)))
+        size_t indicesSize = header.num_collision_indices * sizeof(uint16_t);
+        if (header.offset_collision_indices + indicesSize > totalSize)
         {
-            qCWarning(logM2Parser) << "Could not read collision indices from file:"
-                                   << QString::fromStdString(file_path);
+            qCWarning(logM2Parser) << "Collision indices data is out of bounds.";
             return std::nullopt;
         }
+        geom.indices.resize(header.num_collision_indices);
+        memcpy(geom.indices.data(), currentPtr + header.offset_collision_indices, indicesSize);
     }
 
     if (header.num_collision_normals > 0 && header.offset_collision_normals > 0)
     {
-        geom.normals.resize(header.num_collision_normals);
-        file.seekg(header.offset_collision_normals);
-        file.read(reinterpret_cast<char*>(geom.normals.data()), header.num_collision_normals * sizeof(C3Vector));
-        if (file.gcount() != static_cast<std::streamsize>(header.num_collision_normals * sizeof(C3Vector)))
+        size_t normalsSize = header.num_collision_normals * sizeof(C3Vector);
+        if (header.offset_collision_normals + normalsSize > totalSize)
         {
-            qCWarning(logM2Parser) << "Could not read collision normals from file:"
-                                   << QString::fromStdString(file_path);
+            qCWarning(logM2Parser) << "Collision normals data is out of bounds.";
             return std::nullopt;
         }
+        geom.normals.resize(header.num_collision_normals);
+        memcpy(geom.normals.data(), currentPtr + header.offset_collision_normals, normalsSize);
     }
 
-    qCDebug(logM2Parser) << "Successfully parsed M2 file:" << QString::fromStdString(file_path)
-                         << "Vertices:" << geom.vertices.size() << "Indices:" << geom.indices.size()
-                         << "Normals:" << geom.normals.size();
+    qCDebug(logM2Parser) << "Successfully parsed M2 buffer. Vertices:" << geom.vertices.size()
+                         << "Indices:" << geom.indices.size() << "Normals:" << geom.normals.size();
 
     return geom;
 }

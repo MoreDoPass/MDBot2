@@ -95,7 +95,7 @@ class Parser
    public:
     Parser() = default;
 
-    std::optional<CollisionGeometry> parse(const std::string& file_path) const;
+    std::optional<CollisionGeometry> parse(const std::vector<unsigned char>& dataBuffer) const;
 };
 
 }  // namespace NavMeshTool::M2
