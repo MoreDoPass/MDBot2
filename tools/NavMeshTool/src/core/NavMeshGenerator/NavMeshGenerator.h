@@ -9,6 +9,7 @@
 // Подключаем парсер WDT
 #include "core/WoWFiles/Parsers/WDT/WDTParser.h"
 #include "core/WoWFiles/Parsers/ADT/ADTParser.h"
+#include "core/WoWFiles/Parsers/WMO/WMOParser.h"
 
 // Прямое объявление (Forward declaration) MpqManager, чтобы не подключать его заголовок сюда
 // Это уменьшает связанность и время компиляции.
@@ -83,12 +84,20 @@ class NavMeshGenerator
      */
     const std::vector<int>& getTriangleIndices() const;
 
+    /**
+     * @brief Сохраняет собранную геометрию в файл формата .obj.
+     * @param filepath Путь к файлу для сохранения.
+     * @return true, если сохранение прошло успешно, иначе false.
+     */
+    bool saveToObj(const std::string& filepath) const;
+
    private:
     MpqManager& m_mpqManager;                         // Ссылка на MPQ менеджер
     std::map<uint32_t, std::string> m_mapDbcEntries;  // Хранилище для данных из Map.dbc (ID -> DirectoryName)
 
     NavMeshTool::WDT::Parser m_wdtParser;        // Экземпляр парсера WDT
     NavMeshTool::ADT::Parser m_adtParser;        // Экземпляр парсера ADT
+    NavMeshTool::WMO::Parser m_wmoParser;        // Экземпляр парсера WMO
     NavMeshTool::WDT::WDTData m_currentWdtData;  // Данные, извлеченные из текущего WDT файла
 
     // Собранная геометрия мира
@@ -97,6 +106,7 @@ class NavMeshGenerator
     // Индексы треугольников: каждый int - это индекс вершины в m_worldVertices / 3.
     // [idx_v1_t1, idx_v2_t1, idx_v3_t1, idx_v1_t2, idx_v2_t2, idx_v3_t2, ...]
     std::vector<int> m_worldTriangleIndices;
+    std::vector<int> m_terrainTileIndices;  // Пред-рассчитанные индексы для одного MCNK
 
     /**
      * @brief Парсит данные файла Map.dbc.
@@ -105,6 +115,14 @@ class NavMeshGenerator
     void parseMapDbc(const std::vector<unsigned char>& buffer);
 
     void processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
+
+    // Приватные методы для обработки составных частей ADT
+    void processAdtTerrain(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
+    void processAdtWmos(const NavMeshTool::ADT::ADTData& adtData);
+    void processAdtM2s(const NavMeshTool::ADT::ADTData& adtData);
+
+    void buildTerrainTileIndices();
+
     // Здесь будут приватные методы для парсинга WDT, ADT, WMO, M2,
     // трансформации координат и т.д.
     // void processWdt(const std::string& mapName);

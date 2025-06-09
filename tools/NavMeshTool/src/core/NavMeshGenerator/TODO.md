@@ -23,19 +23,19 @@
     - [x] Вызвать `m_adtParser.parse(buffer)` и получить `adtData`.
     - [x] **Action:** Если `adtData` получены, вызвать новую приватную функцию `processAdtChunk(*adtData, adt_row, adt_col)`.
 
-- [ ] **2. Создать и реализовать `processAdtChunk(const ADTData& adtData, int row, int col)`:**
-  - [ ] Этот метод будет оркестратором для обработки одного тайла карты.
-  - [ ] Он должен последовательно вызывать:
-    - [ ] `processAdtTerrain(adtData, row, col)`
-    - [ ] `processAdtWmos(adtData)`
-    - [ ] `processAdtM2s(adtData)`
+- [x] **2. Создать и реализовать `processAdtChunk(const ADTData& adtData, int row, int col)`:**
+  - [x] Этот метод будет оркестратором для обработки одного тайла карты.
+  - [x] Он должен последовательно вызывать:
+    - [x] `processAdtTerrain(adtData, row, col)`
+    - [x] `processAdtWmos(adtData)`
+    - [x] `processAdtM2s(adtData)`
 
-- [ ] **3. Реализовать `processAdtTerrain(const ADTData& adtData, int row, int col)`:**
-  - [ ] Получить вершины и индексы из `adtData.terrain.vertices` и `adtData.terrain.indices`.
-  - [ ] **(Сложно)** Трансформировать каждую вершину из локальных координат тайла в мировые. Для этого нужно знать глобальные координаты угла ADT, которые вычисляются на основе `row`, `col` и констант размера тайла.
-  - [ ] Перед добавлением в `m_worldVertices` запомнить текущий размер этого вектора (`vertexOffset`).
-  - [ ] Добавить трансформированные вершины в `m_worldVertices`.
-  - [ ] Добавить индексы в `m_worldTriangleIndices`, прибавив к каждому индексу `vertexOffset`.
+- [x] **3. Реализовать `processAdtTerrain(const ADTData& adtData, int row, int col)`:**
+  - [x] Получить вершины и индексы из `adtData.terrain.vertices` и `adtData.terrain.indices`.
+  - [x] **(Сложно)** Трансформировать каждую вершину из локальных координат тайла в мировые. Для этого нужно знать глобальные координаты угла ADT, которые вычисляются на основе `row`, `col` и констант размера тайла.
+  - [x] Перед добавлением в `m_worldVertices` запомнить текущий размер этого вектора (`vertexOffset`).
+  - [x] Добавить трансформированные вершины в `m_worldVertices`.
+  - [x] Добавить индексы в `m_worldTriangleIndices`, прибавив к каждому индексу `vertexOffset`.
 
 - [ ] **4. Реализовать `processAdtWmos(const ADTData& adtData)`:**
   - [ ] Пройти в цикле по списку WMO-объектов из `adtData.wmo_definitions`.
