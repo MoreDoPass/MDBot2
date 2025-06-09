@@ -258,16 +258,17 @@ std::optional<WDTData> Parser::parse(const std::vector<unsigned char>& dataBuffe
         {
             if (wdtData.mainEntries[i].flags & SMAREA_FLAG_HAS_ADT)
             {
-                int tileFileX = i / 64;  // Согласно README: FileX = index / 64
-                int tileFileY = i % 64;  // Согласно README: FileY = index % 64
-                // Корректный формат имени: MapName_FileY_FileX.adt
-                std::string adtName = wdtData.baseMapName + "_" + std::to_string(tileFileY) +
-                                      "_" +                                // Сначала FileY (index % 64)
-                                      std::to_string(tileFileX) + ".adt";  // Затем FileX (index / 64)
-                wdtData.adtFileNames.push_back(adtName);
+                int tileX = i % 64;  // Согласно wowdev: TileX = index % 64
+                int tileY = i / 64;  // Согласно wowdev: TileY = index / 64
+
+                // Формат имени: World\maps\MapName\MapName_tileY_tileX.adt
+                std::string adtPath = "World\\maps\\" + wdtData.baseMapName + "\\" + wdtData.baseMapName + "_" +
+                                      std::to_string(tileY) + "_" + std::to_string(tileX) + ".adt";
+
+                wdtData.adtFilenames.push_back({adtPath, tileX, tileY});
             }
         }
-        qCDebug(logWdtParser) << "Generated" << wdtData.adtFileNames.size() << "ADT filenames for map"
+        qCDebug(logWdtParser) << "Generated" << wdtData.adtFilenames.size() << "ADT filenames for map"
                               << QString::fromStdString(wdtData.baseMapName);
     }
 

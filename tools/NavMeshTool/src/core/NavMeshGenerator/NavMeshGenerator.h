@@ -8,6 +8,7 @@
 
 // Подключаем парсер WDT
 #include "core/WoWFiles/Parsers/WDT/WDTParser.h"
+#include "core/WoWFiles/Parsers/ADT/ADTParser.h"
 
 // Прямое объявление (Forward declaration) MpqManager, чтобы не подключать его заголовок сюда
 // Это уменьшает связанность и время компиляции.
@@ -87,6 +88,7 @@ class NavMeshGenerator
     std::map<uint32_t, std::string> m_mapDbcEntries;  // Хранилище для данных из Map.dbc (ID -> DirectoryName)
 
     NavMeshTool::WDT::Parser m_wdtParser;        // Экземпляр парсера WDT
+    NavMeshTool::ADT::Parser m_adtParser;        // Экземпляр парсера ADT
     NavMeshTool::WDT::WDTData m_currentWdtData;  // Данные, извлеченные из текущего WDT файла
 
     // Собранная геометрия мира
@@ -102,6 +104,7 @@ class NavMeshGenerator
      */
     void parseMapDbc(const std::vector<unsigned char>& buffer);
 
+    void processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
     // Здесь будут приватные методы для парсинга WDT, ADT, WMO, M2,
     // трансформации координат и т.д.
     // void processWdt(const std::string& mapName);

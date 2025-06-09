@@ -3,6 +3,7 @@
 #include <QLoggingCategory>
 #include <QDebug>
 #include <cstring>  // Для memcpy или безопасного reinterpret_cast
+#include <string>
 
 // Пока что MpqManager.h не нужен здесь, так как мы работаем только со ссылкой,
 // а все вызовы будут через m_mpqManager, тип которой уже известен из NavMeshGenerator.h
@@ -22,142 +23,64 @@ NavMeshGenerator::NavMeshGenerator(MpqManager& mpqManager)
     qCDebug(logNavMeshGenerator) << "NavMeshGenerator created.";
 }
 
-bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector<std::pair<int, int>>& /*adtCoords*/)
+bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector<std::pair<int, int>>& adtCoords)
 {
+    Q_UNUSED(adtCoords);  // Пока не используем выборочную загрузку ADT
+
     qCInfo(logNavMeshGenerator) << "Loading map data for map:" << QString::fromStdString(mapName);
 
     // Очищаем данные от предыдущих запусков (если есть)
     m_worldVertices.clear();
     m_worldTriangleIndices.clear();
 
-    // 1. Прочитать Map.dbc
-    std::vector<unsigned char> mapDbcBuffer;
-    std::string mapDbcPath = "DBFilesClient\\Map.dbc";  // Двойной слеш для C++ строк
-
-    qCDebug(logNavMeshGenerator) << "Attempting to read" << QString::fromStdString(mapDbcPath);
-    if (m_mpqManager.readFileToBuffer(mapDbcPath, mapDbcBuffer))
-    {
-        qCInfo(logNavMeshGenerator) << "Successfully read" << QString::fromStdString(mapDbcPath)
-                                    << "into buffer, size:" << mapDbcBuffer.size() << "bytes.";
-        parseMapDbc(mapDbcBuffer);
-    }
-    else
-    {
-        qCCritical(logNavMeshGenerator) << "Failed to read" << QString::fromStdString(mapDbcPath)
-                                        << "from MPQ archives.";
-        return false;  // Если не можем прочитать Map.dbc, дальнейшая загрузка карты невозможна
-    }
-
-    // Проверяем, были ли записи загружены из Map.dbc и найдена ли запрошенная карта
-    if (m_mapDbcEntries.empty())
-    {
-        if (mapDbcBuffer.size() > 0)
-        {  // Файл был прочитан, но парсер не нашел записей (или все были некорректны)
-            qCWarning(logNavMeshGenerator)
-                << "Map.dbc was read (size:" << mapDbcBuffer.size()
-                << ") but no valid map entries were parsed. Cannot proceed with map loading for:"
-                << QString::fromStdString(mapName);
-        }
-        else
-        {  // Файл не был прочитан (уже залогировано выше, но для полноты)
-            qCWarning(logNavMeshGenerator)
-                << "Map.dbc could not be read and therefore no map entries were parsed. Cannot proceed.";
-        }
-        return false;
-    }
-
-    uint32_t targetMapId = 0;
-    std::string targetMapDirectory;
-    bool foundMapInDbc = false;
-
-    for (const auto& entry : m_mapDbcEntries)
-    {
-        if (entry.second == mapName)
-        {  // entry.second это directoryName
-            targetMapId = entry.first;
-            targetMapDirectory = entry.second;
-            foundMapInDbc = true;
-            qCInfo(logNavMeshGenerator) << "Found requested map in Map.dbc: ID:" << targetMapId
-                                        << ", Directory:" << QString::fromStdString(targetMapDirectory);
-            break;
-        }
-    }
-
-    if (!foundMapInDbc)
-    {
-        qCWarning(logNavMeshGenerator) << "Map with directory name '" << QString::fromStdString(mapName)
-                                       << "' not found in parsed Map.dbc data.";
-        qCDebug(logNavMeshGenerator) << "Available maps in Map.dbc (" << m_mapDbcEntries.size() << " total):";
-        int count = 0;
-        for (const auto& entry : m_mapDbcEntries)
-        {
-            qCDebug(logNavMeshGenerator) << "  ID:" << entry.first << ", Dir: '" << QString::fromStdString(entry.second)
-                                         << "'";
-            if (++count >= 10 && m_mapDbcEntries.size() > 15)
-            {  // Показываем первые несколько, если их много
-                qCDebug(logNavMeshGenerator) << "...and" << (m_mapDbcEntries.size() - count) << "more.";
-                break;
-            }
-        }
-        return false;
-    }
-
-    // 2. Прочитать WDT файл для найденной карты
-    std::string wdtFileName = "World\\Maps\\" + targetMapDirectory + "\\" + targetMapDirectory + ".wdt";
-    qCInfo(logNavMeshGenerator) << "Attempting to read WDT file:" << QString::fromStdString(wdtFileName);
-
+    // 1. Загрузка и парсинг WDT
+    std::string wdtPath = "World\\maps\\" + mapName + "\\" + mapName + ".wdt";
     std::vector<unsigned char> wdtBuffer;
-    if (!m_mpqManager.readFileToBuffer(wdtFileName, wdtBuffer))
+
+    if (!m_mpqManager.readFile(wdtPath, wdtBuffer))
     {
-        qCCritical(logNavMeshGenerator) << "Failed to read WDT file:" << QString::fromStdString(wdtFileName);
+        qCritical(logNavMeshGenerator) << "Failed to read WDT file:" << QString::fromStdString(wdtPath);
         return false;
     }
 
-    qCInfo(logNavMeshGenerator) << "Successfully read WDT file" << QString::fromStdString(wdtFileName)
-                                << "into buffer, size:" << wdtBuffer.size() << "bytes.";
-
-    qCDebug(logNavMeshGenerator) << "Parsing WDT data for" << QString::fromStdString(targetMapDirectory);
-
-    // Вызываем новый метод парсера, который возвращает std::optional
-    auto wdtDataOpt = m_wdtParser.parse(wdtBuffer, targetMapDirectory);
-
-    // Проверяем, удалось ли распарсить данные
+    auto wdtDataOpt = m_wdtParser.parse(wdtBuffer, mapName);
     if (!wdtDataOpt)
     {
-        qCCritical(logNavMeshGenerator) << "Failed to parse WDT data for map:"
-                                        << QString::fromStdString(targetMapDirectory);
+        qCritical(logNavMeshGenerator) << "Failed to parse WDT file:" << QString::fromStdString(wdtPath);
         return false;
     }
+    m_currentWdtData = *wdtDataOpt;
+    qInfo(logNavMeshGenerator) << "Successfully parsed WDT for map" << QString::fromStdString(mapName);
 
-    // Если парсинг успешен, перемещаем данные в член класса
-    m_currentWdtData = std::move(*wdtDataOpt);
-
-    qCInfo(logNavMeshGenerator) << "WDT data parsed successfully for map:"
-                                << QString::fromStdString(targetMapDirectory);
-    qCInfo(logNavMeshGenerator) << "  WDT Version:" << m_currentWdtData.version;
-    qCInfo(logNavMeshGenerator) << "  MPHD Flags:" << Qt::hex << m_currentWdtData.mphd.flags;
-    qCInfo(logNavMeshGenerator) << "  MPHD wdtEntryId/something:" << m_currentWdtData.mphd.wdtEntryId;
-    qCInfo(logNavMeshGenerator) << "  Global WMOs (MWMO):" << m_currentWdtData.mwmoFilenames.size();
-    qCInfo(logNavMeshGenerator) << "  Global WMO placements (MODF):" << m_currentWdtData.modfEntries.size();
-    qCInfo(logNavMeshGenerator) << "  Number of ADT files to load (based on MAIN flags):"
-                                << m_currentWdtData.adtFileNames.size();
-
-    if (m_currentWdtData.adtFileNames.empty())
+    // 2. Основной цикл загрузки ADT
+    for (const auto& adtEntry : m_currentWdtData.adtFilenames)
     {
-        qCWarning(logNavMeshGenerator) << "No ADT files marked for loading in WDT for map:"
-                                       << QString::fromStdString(targetMapDirectory)
-                                       << "(MAIN chunk might indicate an empty map or all ADTs are missing flags).";
-        // Для некоторых карт (например, тестовых или очень маленьких инстансов) это может быть нормально.
-        // Но для больших карт, как Azeroth, это было бы странно.
+        const std::string& adtFileName = adtEntry.filename;
+        qDebug(logNavMeshGenerator) << "Processing ADT:" << QString::fromStdString(adtFileName) << "Coords:("
+                                    << adtEntry.x << "," << adtEntry.y << ")";
+
+        // Читаем файл ADT из MPQ
+        std::vector<unsigned char> adtBuffer;
+        if (!m_mpqManager.readFile(adtFileName, adtBuffer))
+        {
+            qWarning(logNavMeshGenerator) << "Could not read ADT file:" << QString::fromStdString(adtFileName);
+            continue;  // Пропускаем этот ADT
+        }
+
+        // Парсим ADT, передавая имя файла
+        auto adtDataOpt = m_adtParser.parse(adtBuffer, adtFileName);
+        if (!adtDataOpt)
+        {
+            qWarning(logNavMeshGenerator) << "Could not parse ADT file:" << QString::fromStdString(adtFileName);
+            continue;  // Пропускаем
+        }
+
+        // Передаем данные в обработчик
+        processAdtChunk(*adtDataOpt, adtEntry.y, adtEntry.x);
     }
 
-    // TODO: Реализовать логику загрузки ADT файлов на основе m_currentWdtData.adtFileNames
-    // TODO: Реализовать логику загрузки WMO, M2 файлов и сбора геометрии
-
-    qCInfo(logNavMeshGenerator) << "Map.dbc and WDT processed successfully for map:"
-                                << QString::fromStdString(targetMapDirectory) << "(ID:" << targetMapId
-                                << "). Further geometry loading (ADT, etc.) not yet implemented.";
-    return true;  // Возвращаем true, так как Map.dbc и WDT обработаны и карта найдена
+    qInfo(logNavMeshGenerator) << "Finished processing all ADTs for map" << QString::fromStdString(mapName);
+    return true;
 }
 
 const std::vector<float>& NavMeshGenerator::getVertices() const
@@ -295,6 +218,17 @@ void NavMeshGenerator::parseMapDbc(const std::vector<unsigned char>& buffer)
         qCWarning(logNavMeshGenerator) << "Parsed 0 entries but recordCount was" << recordCount
                                        << ". Check logic or DBC content.";
     }
+}
+
+void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col)
+{
+    Q_UNUSED(adtData);
+    Q_UNUSED(row);
+    Q_UNUSED(col);
+    // Эта функция будет реализована в следующих шагах согласно TODO.md
+    // 1. processAdtTerrain(...)
+    // 2. processAdtWmos(...)
+    // 3. processAdtM2s(...)
 }
 
 }  // namespace NavMesh

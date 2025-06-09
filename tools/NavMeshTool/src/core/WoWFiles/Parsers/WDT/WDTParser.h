@@ -66,17 +66,27 @@ constexpr uint16_t MODF_FLAG_USE_EXTENTS = 0x1;  // Использовать г�
 // Другие флаги могут быть здесь, если известны
 
 /**
+ * @brief Структура для хранения информации об одном ADT файле.
+ */
+struct AdtFilenameEntry
+{
+    std::string filename;  // Полное имя файла, например, "World\\Maps\\Azeroth\\Azeroth_30_30.adt"
+    int x;                 // Координата X тайла (0-63)
+    int y;                 // Координата Y тайла (0-63)
+};
+
+/**
  * @brief Структура для хранения всех данных, извлеченных из WDT файла.
  */
 struct WDTData
 {
     uint32_t version = 0;  // Из чанка MVER
     MPHDChunk mphd{};
-    std::vector<SMAreaInfo> mainEntries;     // 64*64 = 4096 записей
-    std::vector<std::string> mwmoFilenames;  // Имена файлов из чанка MWMO
-    std::vector<MODFEntry> modfEntries;      // Записи из чанка MODF
-    std::string baseMapName;                 // Базовое имя карты, например "Karazahn"
-    std::vector<std::string> adtFileNames;   // Имена существующих ADT файлов
+    std::vector<SMAreaInfo> mainEntries;         // 64*64 = 4096 записей
+    std::vector<std::string> mwmoFilenames;      // Имена файлов из чанка MWMO
+    std::vector<MODFEntry> modfEntries;          // Записи из чанка MODF
+    std::string baseMapName;                     // Базовое имя карты, например "Karazahn"
+    std::vector<AdtFilenameEntry> adtFilenames;  // Имена и координаты существующих ADT файлов
 
     WDTData()
     {

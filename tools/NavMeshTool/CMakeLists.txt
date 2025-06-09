@@ -37,6 +37,9 @@ set(NAV_MESH_TOOL_APP_SOURCES
     src/gui/MainWindow.h             # <--- Добавили MainWindow.h
     src/gui/MainWindow.cpp           # <--- Добавили MainWindow.cpp
     src/core/WoWFiles/Parsers/WDT/WDTParser.cpp
+    src/core/WoWFiles/Parsers/ADT/ADTParser.cpp
+    src/core/WoWFiles/Parsers/M2/M2Parser.cpp
+    src/core/WoWFiles/Parsers/WMO/WMOParser.cpp
     src/core/NavMeshGenerator/NavMeshGenerator.cpp
 )
 
