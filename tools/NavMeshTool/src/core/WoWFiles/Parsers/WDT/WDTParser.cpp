@@ -261,10 +261,11 @@ std::optional<WDTData> Parser::parse(const std::vector<unsigned char>& dataBuffe
                 int tileX = i % 64;  // Согласно wowdev: TileX = index % 64
                 int tileY = i / 64;  // Согласно wowdev: TileY = index / 64
 
-                // Формат имени: World\maps\MapName\MapName_tileY_tileX.adt
+                // Формат имени: World\maps\MapName\MapName_tileX_tileY.adt
                 std::string adtPath = "World\\maps\\" + wdtData.baseMapName + "\\" + wdtData.baseMapName + "_" +
-                                      std::to_string(tileY) + "_" + std::to_string(tileX) + ".adt";
+                                      std::to_string(tileX) + "_" + std::to_string(tileY) + ".adt";
 
+                // Сохраняем координаты в правильном порядке: сначала X, потом Y
                 wdtData.adtFilenames.push_back({adtPath, tileX, tileY});
             }
         }
