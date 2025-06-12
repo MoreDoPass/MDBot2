@@ -304,32 +304,45 @@ void NavMeshGenerator::processAdtTerrain(const NavMeshTool::ADT::ADTData& adtDat
         const float ne_corner_y = centerY - (MCNK_SIZE_UNITS / 2.0f);
 
         // Внешние вершины (9x9)
-        // i - итератор по колонкам (движение на юг, увеличение X)
-        // j - итератор по рядам (движение на запад, увеличение Y)
         for (int j = 0; j < 9; ++j)
         {
             for (int i = 0; i < 9; ++i)
             {
                 const float height = mcnk.mcvtData.heights[j * 9 + i];
-                m_worldVertices.push_back(ne_corner_x + (i * UNIT_SIZE));
-                m_worldVertices.push_back(ne_corner_y + (j * UNIT_SIZE));
-                m_worldVertices.push_back(centerZ + height);
+                float x = ne_corner_x + (i * UNIT_SIZE);
+                float y = ne_corner_y + (j * UNIT_SIZE);
+                float z = centerZ + height;
+                // 1. Инверсия по X
+                x = -x;
+                // 2. Поворот на 270 градусов против часовой стрелки
+                float angle_rad = 270.0f * (PI / 180.0f);
+                float newX = x * cos(angle_rad) - y * sin(angle_rad);
+                float newY = x * sin(angle_rad) + y * cos(angle_rad);
+                m_worldVertices.push_back(newX);
+                m_worldVertices.push_back(newY);
+                m_worldVertices.push_back(z);
             }
         }
-
         // Внутренние вершины (8x8)
         for (int j = 0; j < 8; ++j)
         {
             for (int i = 0; i < 8; ++i)
             {
                 const float height = mcnk.mcvtData.heights[81 + j * 8 + i];
-                // Центр ячейки находится со смещением в половину юнита
-                m_worldVertices.push_back(ne_corner_x + (i * UNIT_SIZE) + (UNIT_SIZE / 2.0f));
-                m_worldVertices.push_back(ne_corner_y + (j * UNIT_SIZE) + (UNIT_SIZE / 2.0f));
-                m_worldVertices.push_back(centerZ + height);
+                float x = ne_corner_x + (i * UNIT_SIZE) + (UNIT_SIZE / 2.0f);
+                float y = ne_corner_y + (j * UNIT_SIZE) + (UNIT_SIZE / 2.0f);
+                float z = centerZ + height;
+                // 1. Инверсия по X
+                x = -x;
+                // 2. Поворот на 270 градусов против часовой стрелки
+                float angle_rad = 270.0f * (PI / 180.0f);
+                float newX = x * cos(angle_rad) - y * sin(angle_rad);
+                float newY = x * sin(angle_rad) + y * cos(angle_rad);
+                m_worldVertices.push_back(newX);
+                m_worldVertices.push_back(newY);
+                m_worldVertices.push_back(z);
             }
         }
-
         // 3. Добавляем пред-рассчитанные индексы треугольников с учетом смещения
         for (int index : m_terrainTileIndices)
         {
