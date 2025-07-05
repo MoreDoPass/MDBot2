@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iomanip>
 #include <cmath>  // Для sin, cos
+#include <array>
 
 // Пока что MpqManager.h не нужен здесь, так как мы работаем только со ссылкой,
 // а все вызовы будут через m_mpqManager, тип которой уже известен из NavMeshGenerator.h
@@ -269,81 +270,96 @@ void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData,
 
 void NavMeshGenerator::processAdtTerrain(const NavMeshTool::ADT::ADTData& adtData, int row, int col)
 {
-    Q_UNUSED(row);
-    Q_UNUSED(col);
+    // `row` и `col` - это y и x координаты ADT тайла (например, из BlackTemple_32_28.adt, col=32, row=28)
 
-    // Если индексы для тайла еще не были сгенерированы, делаем это
+    // Если индексы для тайла еще не были сгенерированы, делаем это.
+    // Эта логика корректна и остается без изменений.
     if (m_terrainTileIndices.empty())
     {
         buildTerrainTileIndices();
     }
 
-    // Проходим по каждому из 256 чанков (16x16) в данном ADT
+    // Проходим по каждому из чанков (16x16) в данном ADT
     for (const auto& mcnk : adtData.mcnkChunks)
     {
-        // Проверяем, есть ли в этом чанке геометрия
-        if (mcnk.header.flags & 0x40 ||
-            mcnk.mcvtData.heights
-                .empty())  // has_mccv, но в нашем случае это может означать, что нет вершин. Проверяем и сам массив.
-            continue;
+        // Проверяем, есть ли в этом чанке геометрия.
+        if (mcnk.mcvtData.heights.empty()) continue;
 
         // 1. Сохраняем текущее количество вершин. Это будет смещение для индексов этого чанка.
         const size_t vertexOffset = m_worldVertices.size() / 3;
 
-        // 2. Рассчитываем мировые координаты.
-        // Заголовок MCNK УЖЕ содержит готовые мировые координаты центра чанка.
-        // Используем их напрямую, без каких-либо трансформаций.
-        // Это ключевое исправление: мы больше не используем MAP_CHUNK_SIZE для ландшафта.
-        const float centerX = mcnk.header.xpos;
-        const float centerY = mcnk.header.zpos;  // В файле zpos - это мировая Y
-        const float centerZ = mcnk.header.ypos;  // В файле ypos - это мировая Z (высота)
+        // --- Новая логика, перенесенная из testik_latest.py ---
 
-        // Координаты северо-восточного угла чанка.
-        // В WoW +X = Юг, +Y = Запад. Поэтому северо-восток - это наименьшие X и Y.
-        const float ne_corner_x = centerX - (MCNK_SIZE_UNITS / 2.0f);
-        const float ne_corner_y = centerY - (MCNK_SIZE_UNITS / 2.0f);
+        // 2. Вычисляем глобальные индексы чанка в общей сетке мира
+        const int pos_x = (col * 16) + mcnk.header.indexX;
+        const int pos_y = (row * 16) + mcnk.header.indexY;
+
+        // 3. Пред-вычисляем координаты для сетки X и Y (аналог _calculate_world_coords_and_cache_grid)
+        std::array<float, 9> vertexXCoordsCache;
+        std::array<float, 9> vertexYCoordsCache;
+
+        const float scaled_y_for_world_x = static_cast<float>(pos_y) * MCNK_SIZE_UNITS;
+
+        // В WoW +X = Юг, +Y = Запад. В нашей системе координат это может быть иначе,
+        // но мы следуем логике Python, которая дала верный результат.
+        // Python: final_world_Y = ZERO_POINT - (self.pos_x * CHUNK_SIZE) -> Наша X
+        // Python: final_world_X = ZERO_POINT - self.scaled_y_for_world_x -> Наша Y
+        const float final_world_x = MAP_CHUNK_SIZE - (static_cast<float>(pos_x) * MCNK_SIZE_UNITS);
+        const float final_world_y = MAP_CHUNK_SIZE - scaled_y_for_world_x;
+
+        vertexXCoordsCache[0] = final_world_x;
+        vertexYCoordsCache[0] = final_world_y;
+
+        const float step = MCNK_SIZE_UNITS / 8.0f;
+        for (int i = 1; i < 9; ++i)
+        {
+            // В Python-скрипте было `final_world_Y - (step * i)`, что соответствует движению на юг (уменьшение X).
+            // `final_world_X - (step * i)`, что соответствует движению на восток (уменьшение Y).
+            vertexXCoordsCache[i] = final_world_x - (step * i);
+            vertexYCoordsCache[i] = final_world_y - (step * i);
+        }
+        // Координаты для "шва" (стыка с соседями), Python использует pos_x+1 и pos_y+1
+        // vertexXCoordsCache[8] = MAP_CHUNK_SIZE - (static_cast<float>(pos_x + 1) * MCNK_SIZE_UNITS);
+        // vertexYCoordsCache[8] = MAP_CHUNK_SIZE - (static_cast<float>(pos_y + 1) * MCNK_SIZE_UNITS);
+
+        // 4. Генерируем вершины, используя кешированные значения
+        const float centerZ = mcnk.header.ypos;  // Базовая высота чанка
+        size_t mcvt_ptr = 0;                     // "Указатель" на текущую позицию в данных о высоте
 
         // Внешние вершины (9x9)
-        for (int j = 0; j < 9; ++j)
+        for (int j = 0; j < 9; ++j)  // j - итерация по "столбцам" (ось Y)
         {
-            for (int i = 0; i < 9; ++i)
+            for (int i = 0; i < 9; ++i)  // i - итерация по "рядам" (ось X)
             {
-                const float height = mcnk.mcvtData.heights[j * 9 + i];
-                float x = ne_corner_x + (i * UNIT_SIZE);
-                float y = ne_corner_y + (j * UNIT_SIZE);
-                float z = centerZ + height;
-                // 1. Инверсия по X
-                x = -x;
-                // 2. Поворот на 270 градусов против часовой стрелки
-                float angle_rad = 270.0f * (PI / 180.0f);
-                float newX = x * cos(angle_rad) - y * sin(angle_rad);
-                float newY = x * sin(angle_rad) + y * cos(angle_rad);
-                m_worldVertices.push_back(newX);
-                m_worldVertices.push_back(newY);
-                m_worldVertices.push_back(z);
+                const float world_x = vertexXCoordsCache[i];
+                const float world_y = vertexYCoordsCache[j];
+                const float world_z = centerZ + mcnk.mcvtData.heights[mcvt_ptr + i];
+
+                m_worldVertices.push_back(world_x);
+                m_worldVertices.push_back(world_y);
+                m_worldVertices.push_back(world_z);
             }
+            mcvt_ptr += 9;
         }
+
         // Внутренние вершины (8x8)
-        for (int j = 0; j < 8; ++j)
+        for (int j = 0; j < 8; ++j)  // j - итерация по "столбцам" (ось Y)
         {
-            for (int i = 0; i < 8; ++i)
+            for (int i = 0; i < 8; ++i)  // i - итерация по "рядам" (ось X)
             {
-                const float height = mcnk.mcvtData.heights[81 + j * 8 + i];
-                float x = ne_corner_x + (i * UNIT_SIZE) + (UNIT_SIZE / 2.0f);
-                float y = ne_corner_y + (j * UNIT_SIZE) + (UNIT_SIZE / 2.0f);
-                float z = centerZ + height;
-                // 1. Инверсия по X
-                x = -x;
-                // 2. Поворот на 270 градусов против часовой стрелки
-                float angle_rad = 270.0f * (PI / 180.0f);
-                float newX = x * cos(angle_rad) - y * sin(angle_rad);
-                float newY = x * sin(angle_rad) + y * cos(angle_rad);
-                m_worldVertices.push_back(newX);
-                m_worldVertices.push_back(newY);
-                m_worldVertices.push_back(z);
+                const float world_x = vertexXCoordsCache[i] - (step / 2.0f);
+                const float world_y = vertexYCoordsCache[j] - (step / 2.0f);
+                const float world_z = centerZ + mcnk.mcvtData.heights[mcvt_ptr + i];
+
+                m_worldVertices.push_back(world_x);
+                m_worldVertices.push_back(world_y);
+                m_worldVertices.push_back(world_z);
             }
+            mcvt_ptr += 8;
         }
-        // 3. Добавляем пред-рассчитанные индексы треугольников с учетом смещения
+
+        // 5. Добавляем пред-рассчитанные индексы треугольников с учетом смещения.
+        // Эта логика корректна и остается без изменений.
         for (int index : m_terrainTileIndices)
         {
             m_worldTriangleIndices.push_back(static_cast<int>(vertexOffset + index));

@@ -1,10 +1,15 @@
 cmake_minimum_required(VERSION 3.16)
 project(NavMeshTool LANGUAGES CXX)
 
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+    set(CMAKE_TOOLCHAIN_FILE "C:/Dev/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON) # Полезно для Windows, если будете делать библиотеки DLL из частей проекта
 set(CMAKE_AUTOMOC ON) # Для Qt Meta-Object Compiler
+
 
 # Поиск необходимых пакетов
 find_package(Qt6 COMPONENTS Core Widgets REQUIRED) # Добавили Widgets
@@ -68,9 +73,28 @@ target_link_libraries(NavMeshTool_app PRIVATE
     BZip2::BZip2
 )
 
+if(WIN32)
+    # --- Ручное копирование плагина платформы Qt ---
+    # Этот метод менее гибкий, чем windeployqt, но решает конкретную проблему "platform plugin not found".
+
+    # Папка назначения для плагинов (должна называться 'platforms' и находиться рядом с .exe)
+    set(PLATFORM_PLUGIN_DEST_DIR "$<TARGET_FILE_DIR:NavMeshTool_app>/platforms")
+
+    # Копируем нужный платформенный плагин в зависимости от конфигурации сборки.
+    # Это решает проблему, когда одна из версий (Debug/Release) плагина отсутствует.
+    add_custom_command(TARGET NavMeshTool_app POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${PLATFORM_PLUGIN_DEST_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            # Используем generator expression для выбора нужного файла
+            "$<IF:$<CONFIG:Debug>,C:/Dev/vcpkg/installed/x64-windows/debug/Qt6/plugins/platforms/qwindowsd.dll,C:/Dev/vcpkg/installed/x64-windows/Qt6/plugins/platforms/qwindows.dll>"
+            ${PLATFORM_PLUGIN_DEST_DIR}
+        COMMENT "Copying Qt platform plugin for $<CONFIG> build..."
+        VERBATIM
+    )
+endif()
+
 # Если вы будете использовать StormLib, и он собирается через vcpkg или как часть вашего проекта,
-# вам нужно будет настроить find_package(StormLib REQUIRED) и связать его.
-# Пример для vcpkg (если StormLib установлен через vcpkg и интегрирован с CMake проектом):
+# вам нужно будет настроить его поиск здесь. Примерно так:
 # find_package(StormLib CONFIG REQUIRED)
 # target_link_libraries(NavMeshTool_app PRIVATE StormLib::StormLib)
 
