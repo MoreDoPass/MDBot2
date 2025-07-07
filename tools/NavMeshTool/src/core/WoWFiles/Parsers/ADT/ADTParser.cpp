@@ -283,9 +283,10 @@ bool Parser::parseMCVT(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnk
         return true;  // Не ошибка, просто нет MCVT
     }
 
-    uint32_t absoluteMcvtOffset = mcnkBaseOffset + mcnkChunk.header.ofsHeight;
+    // ofsHeight - это смещение от начала MCNK чанка.
+    // Поток stream уже установлен на начало MCNK чанка.
     std::streampos originalPos = stream.tellg();
-    stream.seekg(absoluteMcvtOffset);
+    stream.seekg(mcnkChunk.header.ofsHeight, std::ios::beg);  // Искать от начала MCNK
 
     if (!stream)
     {
@@ -307,7 +308,7 @@ bool Parser::parseMCVT(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnk
     constexpr uint32_t expectedMcvtDataSize = 145 * sizeof(float);  // 580
     if (mcvtHeader.dataSize != expectedMcvtDataSize)
     {
-        log("[ERROR] MCRF data size mismatch.", logMessages);
+        log("[ERROR] MCVT data size mismatch.", logMessages);
         stream.seekg(mcvtHeader.dataSize, std::ios::cur);
         stream.clear();
         stream.seekg(originalPos);
@@ -337,9 +338,10 @@ bool Parser::parseMCNR(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnk
         return true;  // Нет MCNR
     }
 
-    uint32_t absoluteMcnrOffset = mcnkBaseOffset + mcnkChunk.header.ofsNormal;
+    // ofsNormal - это смещение от начала MCNK чанка.
+    // Поток stream уже установлен на начало MCNK чанка.
     std::streampos originalPos = stream.tellg();
-    stream.seekg(absoluteMcnrOffset);
+    stream.seekg(mcnkChunk.header.ofsNormal, std::ios::beg);  // Искать от начала MCNK
 
     if (!stream)
     {
@@ -361,20 +363,31 @@ bool Parser::parseMCNR(std::istream& stream, MCNKChunk& mcnkChunk, uint32_t mcnk
     constexpr uint32_t expectedMcnrDataSize = 145 * sizeof(MCNRData::Normal);  // 145 * 3 = 435
     if (mcnrHeader.dataSize != expectedMcnrDataSize)
     {
-        log("[ERROR] MCRF data size mismatch.", logMessages);
+        log("[ERROR] MCNR data size mismatch.", logMessages);
         stream.seekg(mcnrHeader.dataSize, std::ios::cur);
         stream.clear();
         stream.seekg(originalPos);
         return false;
     }
 
-    stream.read(reinterpret_cast<char*>(mcnkChunk.mcnrData.normals.data()), expectedMcnrDataSize);
-    if (!stream || stream.gcount() != expectedMcnrDataSize)
+    // Читаем нормали по одному байту, чтобы вручную переставить компоненты
+    // из формата файла (ny, nz, nx) в стандартный (nx, ny, nz), как в python-скрипте.
+    for (int i = 0; i < 145; ++i)
     {
-        log("[ERROR] Failed to read MCNR normals data.", logMessages);
-        stream.clear();
-        stream.seekg(originalPos);
-        return false;
+        int8_t ny, nz, nx;
+        stream.read(reinterpret_cast<char*>(&ny), 1);
+        stream.read(reinterpret_cast<char*>(&nz), 1);
+        stream.read(reinterpret_cast<char*>(&nx), 1);
+
+        if (!stream)
+        {
+            log("[ERROR] Failed to read MCNR normals data block " + std::to_string(i), logMessages);
+            stream.clear();
+            stream.seekg(originalPos);
+            return false;
+        }
+
+        mcnkChunk.mcnrData.normals[i] = {nx, ny, nz};
     }
 
     mcnkChunk.hasMCNR = true;
@@ -626,26 +639,29 @@ bool Parser::parseMCNKs(std::istream& stream, ADTData& adtData, std::vector<std:
             continue;
         }
 
-        std::streampos originalPos = stream.tellg();
+        // Создаем под-поток для данных только этого MCNK чанка.
+        // Это точно имитирует логику Python-скрипта.
         stream.seekg(mcinEntry.offset);
-        if (!stream)
+        std::vector<char> mcnkBuffer(mcinEntry.size);
+        stream.read(mcnkBuffer.data(), mcinEntry.size);
+        std::string mcnkDataStr(mcnkBuffer.begin(), mcnkBuffer.end());
+        std::istringstream mcnkStream(mcnkDataStr, std::ios::binary);
+
+        if (!mcnkStream)
         {
-            log("    MCNK [" + std::to_string(i) + "]: [ERROR] Failed to seek to MCNK offset 0x" +
+            log("    MCNK [" + std::to_string(i) +
+                    "]: [ERROR] Failed to create istringstream for MCNK chunk at offset 0x" +
                     std::to_string(mcinEntry.offset),
                 logMessages);
-            stream.clear();
-            stream.seekg(originalPos);  // Вернуть курсор
             continue;
         }
 
         ChunkHeader mcnkFileHeader;  // Это заголовок чанка MCNK (ID + размер данных MCNK)
-        if (!readChunkHeader(stream, mcnkFileHeader))
+        if (!readChunkHeader(mcnkStream, mcnkFileHeader))
         {
             log("    MCNK [" + std::to_string(i) + "]: [ERROR] Failed to read MCNK chunk header at offset 0x" +
                     std::to_string(mcinEntry.offset),
                 logMessages);
-            stream.clear();
-            stream.seekg(originalPos);
             continue;
         }
 
@@ -654,18 +670,14 @@ bool Parser::parseMCNKs(std::istream& stream, ADTData& adtData, std::vector<std:
             log("    MCNK [" + std::to_string(i) + "]: [ERROR] Expected ID 'MCNK' (KNCM), but found '" +
                     mcnkFileHeader.getReversedChunkIdStr() + "' at offset 0x" + std::to_string(mcinEntry.offset),
                 logMessages);
-            stream.clear();
-            stream.seekg(originalPos);
             continue;
         }
 
         // Читаем 128-байтный заголовок данных MCNK
-        if (!readChunkData(stream, sizeof(MCNKHeaderData), currentMcnk.header))
+        if (!readChunkData(mcnkStream, sizeof(MCNKHeaderData), currentMcnk.header))
         {
             log("        MCNK [" + std::to_string(i) + "]: [ERROR] Failed to read 128-byte MCNK header data.",
                 logMessages);
-            stream.clear();
-            stream.seekg(originalPos);
             continue;
         }
 
@@ -679,14 +691,14 @@ bool Parser::parseMCNKs(std::istream& stream, ADTData& adtData, std::vector<std:
                 logMessages);
         }
 
-        // Парсим MCVT
-        if (!parseMCVT(stream, currentMcnk, mcinEntry.offset, logMessages))
+        // Парсим MCVT из под-потока
+        if (!parseMCVT(mcnkStream, currentMcnk, mcinEntry.offset, logMessages))
         {
             // Ошибка уже залогирована в parseMCVT
         }
 
-        // Парсим MCNR
-        if (!parseMCNR(stream, currentMcnk, mcinEntry.offset, logMessages))
+        // Парсим MCNR из под-потока
+        if (!parseMCNR(mcnkStream, currentMcnk, mcinEntry.offset, logMessages))
         {
             // Ошибка уже залогирована в parseMCNR
         }
@@ -694,7 +706,7 @@ bool Parser::parseMCNKs(std::istream& stream, ADTData& adtData, std::vector<std:
         // Парсим MCLQ (локальная жидкость), если нет глобальной MH2O
         if (!adtData.hasMH2O && currentMcnk.header.ofsMCLQ > 0)
         {
-            if (!parseMCLQ(stream, currentMcnk, mcinEntry.offset, currentMcnk.header.sizeMCLQ, logMessages))
+            if (!parseMCLQ(mcnkStream, currentMcnk, mcinEntry.offset, currentMcnk.header.sizeMCLQ, logMessages))
             {
                 // Ошибка уже залогирована в parseMCLQ
             }
@@ -704,14 +716,11 @@ bool Parser::parseMCNKs(std::istream& stream, ADTData& adtData, std::vector<std:
         // mcinEntry.offset - это абсолютное смещение начала MCNK чанка (его ID)
         if (currentMcnk.header.ofsRefs > 0 || currentMcnk.header.nDoodadRefs > 0 || currentMcnk.header.nMapObjRefs > 0)
         {
-            if (!parseMCRF(stream, currentMcnk, mcinEntry.offset, logMessages))
+            if (!parseMCRF(mcnkStream, currentMcnk, mcinEntry.offset, logMessages))
             {
                 // Ошибка уже залогирована в parseMCRF
             }
         }
-
-        stream.clear();
-        stream.seekg(originalPos);  // Восстанавливаем позицию для следующего MCNK или другого чанка
     }
     return true;
 }

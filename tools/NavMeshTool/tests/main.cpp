@@ -9,8 +9,18 @@
 // Можно определить глобальную категорию логирования для общих сообщений тестов, если нужно
 Q_LOGGING_CATEGORY(logTestRunner, "navmesh.test.runner")
 
+// Включаем наш новый тест через его заголовочный файл
+#include "NavMeshGenerator/processAdtTerrain.h"
+
 int main(int argc, char** argv)
 {
+    // Запускаем тест генерации ландшафта.
+    // Если вернет не 0, значит была ошибка, и мы можем остановить выполнение.
+    if (runFullTerrainGeneration() != 0)
+    {
+        return 1;  // Возвращаем код ошибки
+    }
+
     // Инициализация QCoreApplication для Qt логирования во всех тестах.
     // Это важно сделать до InitGoogleTest, если какие-то глобальные
     // объекты или SetUpTestSuite используют Qt.

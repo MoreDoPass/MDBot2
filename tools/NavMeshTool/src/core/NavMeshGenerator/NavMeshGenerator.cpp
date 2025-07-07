@@ -270,96 +270,74 @@ void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData,
 
 void NavMeshGenerator::processAdtTerrain(const NavMeshTool::ADT::ADTData& adtData, int row, int col)
 {
-    // `row` и `col` - это y и x координаты ADT тайла (например, из BlackTemple_32_28.adt, col=32, row=28)
-
-    // Если индексы для тайла еще не были сгенерированы, делаем это.
-    // Эта логика корректна и остается без изменений.
     if (m_terrainTileIndices.empty())
     {
         buildTerrainTileIndices();
     }
 
-    // Проходим по каждому из чанков (16x16) в данном ADT
     for (const auto& mcnk : adtData.mcnkChunks)
     {
-        // Проверяем, есть ли в этом чанке геометрия.
         if (mcnk.mcvtData.heights.empty()) continue;
 
-        // 1. Сохраняем текущее количество вершин. Это будет смещение для индексов этого чанка.
         const size_t vertexOffset = m_worldVertices.size() / 3;
 
-        // --- Новая логика, перенесенная из testik_latest.py ---
-
-        // 2. Вычисляем глобальные индексы чанка в общей сетке мира
         const int pos_x = (col * 16) + mcnk.header.indexX;
         const int pos_y = (row * 16) + mcnk.header.indexY;
+        const int neighbor_chunk_index_x = pos_x + 1;
+        const int neighbor_chunk_index_y = pos_y + 1;
 
-        // 3. Пред-вычисляем координаты для сетки X и Y (аналог _calculate_world_coords_and_cache_grid)
-        std::array<float, 9> vertexXCoordsCache;
-        std::array<float, 9> vertexYCoordsCache;
+        std::array<float, 9> VertexYCoordsCache_South;
+        std::array<float, 9> VertexXCoordsCache_West;
 
-        const float scaled_y_for_world_x = static_cast<float>(pos_y) * MCNK_SIZE_UNITS;
+        const float final_world_Y = MAP_CHUNK_SIZE - (static_cast<float>(pos_x) * MCNK_SIZE_UNITS);
+        const float final_world_X = MAP_CHUNK_SIZE - (static_cast<float>(pos_y) * MCNK_SIZE_UNITS);
 
-        // В WoW +X = Юг, +Y = Запад. В нашей системе координат это может быть иначе,
-        // но мы следуем логике Python, которая дала верный результат.
-        // Python: final_world_Y = ZERO_POINT - (self.pos_x * CHUNK_SIZE) -> Наша X
-        // Python: final_world_X = ZERO_POINT - self.scaled_y_for_world_x -> Наша Y
-        const float final_world_x = MAP_CHUNK_SIZE - (static_cast<float>(pos_x) * MCNK_SIZE_UNITS);
-        const float final_world_y = MAP_CHUNK_SIZE - scaled_y_for_world_x;
-
-        vertexXCoordsCache[0] = final_world_x;
-        vertexYCoordsCache[0] = final_world_y;
+        VertexYCoordsCache_South[0] = final_world_Y;
+        VertexXCoordsCache_West[0] = final_world_X;
 
         const float step = MCNK_SIZE_UNITS / 8.0f;
-        for (int i = 1; i < 9; ++i)
+        for (int i = 1; i < 8; ++i)
         {
-            // В Python-скрипте было `final_world_Y - (step * i)`, что соответствует движению на юг (уменьшение X).
-            // `final_world_X - (step * i)`, что соответствует движению на восток (уменьшение Y).
-            vertexXCoordsCache[i] = final_world_x - (step * i);
-            vertexYCoordsCache[i] = final_world_y - (step * i);
+            VertexYCoordsCache_South[i] = final_world_Y - (step * i);
+            VertexXCoordsCache_West[i] = final_world_X - (step * i);
         }
-        // Координаты для "шва" (стыка с соседями), Python использует pos_x+1 и pos_y+1
-        // vertexXCoordsCache[8] = MAP_CHUNK_SIZE - (static_cast<float>(pos_x + 1) * MCNK_SIZE_UNITS);
-        // vertexYCoordsCache[8] = MAP_CHUNK_SIZE - (static_cast<float>(pos_y + 1) * MCNK_SIZE_UNITS);
 
-        // 4. Генерируем вершины, используя кешированные значения
-        const float centerZ = mcnk.header.ypos;  // Базовая высота чанка
-        size_t mcvt_ptr = 0;                     // "Указатель" на текущую позицию в данных о высоте
+        VertexYCoordsCache_South[8] = MAP_CHUNK_SIZE - (static_cast<float>(neighbor_chunk_index_x) * MCNK_SIZE_UNITS);
+        VertexXCoordsCache_West[8] = MAP_CHUNK_SIZE - (static_cast<float>(neighbor_chunk_index_y) * MCNK_SIZE_UNITS);
 
-        // Внешние вершины (9x9)
-        for (int j = 0; j < 9; ++j)  // j - итерация по "столбцам" (ось Y)
+        const float world_z_base = mcnk.header.ypos;
+        size_t mcvt_ptr = 0;
+
+        for (int j = 0; j < 9; ++j)
         {
-            for (int i = 0; i < 9; ++i)  // i - итерация по "рядам" (ось X)
+            for (int i = 0; i < 9; ++i)
             {
-                const float world_x = vertexXCoordsCache[i];
-                const float world_y = vertexYCoordsCache[j];
-                const float world_z = centerZ + mcnk.mcvtData.heights[mcvt_ptr + i];
+                const float world_x = VertexXCoordsCache_West[j];
+                const float world_y = VertexYCoordsCache_South[i];
+                const float world_z = world_z_base + mcnk.mcvtData.heights[mcvt_ptr + i];
 
                 m_worldVertices.push_back(world_x);
                 m_worldVertices.push_back(world_y);
                 m_worldVertices.push_back(world_z);
             }
             mcvt_ptr += 9;
-        }
 
-        // Внутренние вершины (8x8)
-        for (int j = 0; j < 8; ++j)  // j - итерация по "столбцам" (ось Y)
-        {
-            for (int i = 0; i < 8; ++i)  // i - итерация по "рядам" (ось X)
+            if (j < 8)
             {
-                const float world_x = vertexXCoordsCache[i] - (step / 2.0f);
-                const float world_y = vertexYCoordsCache[j] - (step / 2.0f);
-                const float world_z = centerZ + mcnk.mcvtData.heights[mcvt_ptr + i];
+                for (int i = 0; i < 8; ++i)
+                {
+                    const float world_x = VertexXCoordsCache_West[j] - (step / 2.0f);
+                    const float world_y = VertexYCoordsCache_South[i] - (step / 2.0f);
+                    const float world_z = world_z_base + mcnk.mcvtData.heights[mcvt_ptr + i];
 
-                m_worldVertices.push_back(world_x);
-                m_worldVertices.push_back(world_y);
-                m_worldVertices.push_back(world_z);
+                    m_worldVertices.push_back(world_x);
+                    m_worldVertices.push_back(world_y);
+                    m_worldVertices.push_back(world_z);
+                }
+                mcvt_ptr += 8;
             }
-            mcvt_ptr += 8;
         }
 
-        // 5. Добавляем пред-рассчитанные индексы треугольников с учетом смещения.
-        // Эта логика корректна и остается без изменений.
         for (int index : m_terrainTileIndices)
         {
             m_worldTriangleIndices.push_back(static_cast<int>(vertexOffset + index));
@@ -618,42 +596,35 @@ void NavMeshGenerator::processAdtM2s(const NavMeshTool::ADT::ADTData& adtData)
 void NavMeshGenerator::buildTerrainTileIndices()
 {
     m_terrainTileIndices.clear();
-    m_terrainTileIndices.reserve(8 * 8 * 4 * 3);  // 8x8 ячеек, 4 треугольника в каждой, 3 индекса на треугольник
+    m_terrainTileIndices.reserve(8 * 8 * 4 * 3);
 
-    // Проходим по каждой ячейке 8x8
-    for (int j = 0; j < 8; j++)
+    for (int i = 0; i < 8; ++i)
     {
-        for (int i = 0; i < 8; i++)
+        for (int j = 0; j < 8; ++j)
         {
-            // Индексы 4-х угловых вершин ячейки (внешние)
-            const int v_top_left = j * 9 + i;
-            const int v_top_right = v_top_left + 1;
-            const int v_bottom_left = (j + 1) * 9 + i;
-            const int v_bottom_right = v_bottom_left + 1;
+            const int outer_grid_stride = 17;
 
-            // Индекс центральной вершины ячейки (внутренняя)
-            const int v_center = 81 + j * 8 + i;
+            const int idx_A = (i * outer_grid_stride) + j;
+            const int idx_B = idx_A + 1;
+            const int idx_X = (i * outer_grid_stride) + 9 + j;
+            const int idx_C = idx_A + outer_grid_stride;
+            const int idx_D = idx_B + outer_grid_stride;
 
-            // Создаем 4 треугольника, которые сходятся в центре ячейки
-            // Треугольник 1: верхний левый
-            m_terrainTileIndices.push_back(v_top_left);
-            m_terrainTileIndices.push_back(v_center);
-            m_terrainTileIndices.push_back(v_bottom_left);
+            m_terrainTileIndices.push_back(idx_X);
+            m_terrainTileIndices.push_back(idx_A);
+            m_terrainTileIndices.push_back(idx_C);
 
-            // Треугольник 2: левый нижний
-            m_terrainTileIndices.push_back(v_bottom_left);
-            m_terrainTileIndices.push_back(v_center);
-            m_terrainTileIndices.push_back(v_bottom_right);
+            m_terrainTileIndices.push_back(idx_X);
+            m_terrainTileIndices.push_back(idx_B);
+            m_terrainTileIndices.push_back(idx_A);
 
-            // Треугольник 3: нижний правый
-            m_terrainTileIndices.push_back(v_bottom_right);
-            m_terrainTileIndices.push_back(v_center);
-            m_terrainTileIndices.push_back(v_top_right);
+            m_terrainTileIndices.push_back(idx_X);
+            m_terrainTileIndices.push_back(idx_D);
+            m_terrainTileIndices.push_back(idx_B);
 
-            // Треугольник 4: правый верхний
-            m_terrainTileIndices.push_back(v_top_right);
-            m_terrainTileIndices.push_back(v_center);
-            m_terrainTileIndices.push_back(v_top_left);
+            m_terrainTileIndices.push_back(idx_X);
+            m_terrainTileIndices.push_back(idx_C);
+            m_terrainTileIndices.push_back(idx_D);
         }
     }
 }

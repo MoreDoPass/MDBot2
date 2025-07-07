@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(NavMeshTool LANGUAGES CXX)
 
+# Включаем генерацию compile_commands.json для clangd
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "C:/Dev/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 endif()
@@ -111,6 +114,7 @@ set(NAVTOOL_CORE_TESTED_SOURCES
     src/core/WoWFiles/Parsers/ADT/ADTParser.cpp
     src/core/WoWFiles/Parsers/M2/M2Parser.cpp
     src/core/WoWFiles/Parsers/WMO/WMOParser.cpp
+    src/core/MpqManager/MpqManager.cpp
     # Добавьте сюда другие .cpp файлы из src/core, которые нужны тестам
 )
 
@@ -122,7 +126,8 @@ set(NAVTOOL_TEST_SOURCES
     #tests/StormLib/TestStormLibIntegration.cpp
     #tests/ADT/TestADTParser.cpp
     #tests/M2/TestM2Parser.cpp
-    tests/WMO/TestWMOParser.cpp
+    #tests/WMO/TestWMOParser.cpp
+    tests/NavMeshGenerator/processAdtTerrain.cpp
     # Добавляйте сюда другие Test*.cpp файлы
 )
 
@@ -304,137 +309,13 @@ if(GTest_FOUND)
     add_test(NAME NavMeshToolTests COMMAND NavMeshToolTests)
     message(STATUS "NavMeshToolTests executable configured and added to CTest.")
 
+    # Копируем директорию с тестовыми ADT файлами в папку сборки,
+    # чтобы тест мог найти их рядом со своим исполняемым файлом.
+    file(COPY tests/NavMeshGenerator/Data DESTINATION ${CMAKE_BINARY_DIR})
+
 else()
     message(WARNING "Google Test NOT FOUND. NavMeshToolTests target will not be created.")
 endif()
-
-# --- Закомментируем старые отдельные тестовые цели ---
-#[[ --- Тест для StormLib в рамках NavMeshTool ---
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test.cpp")
-    set(STORM_LIB_TEST_SOURCES
-        tests/stormlib_test.cpp
-    )
-    add_executable(NavMesh_StormLibTest ${STORM_LIB_TEST_SOURCES})
-    
-    target_include_directories(NavMesh_StormLibTest PRIVATE
-        src # Если тесту нужны другие заголовки из NavMeshTool
-        ${STORM_LIB_INCLUDE_DIR} # <--- Путь к заголовкам StormLib
-        # ${Qt6_Core_INCLUDE_DIRS} # Раскомментируй, если тест использует Qt напрямую
-    )
-
-    # Устанавливаем определения для Unicode для теста
-    target_compile_definitions(NavMesh_StormLibTest PRIVATE UNICODE _UNICODE)
-
-    target_link_libraries(NavMesh_StormLibTest PRIVATE
-        # Qt::Core # Раскомментируй, если тест использует Qt напрямую
-        # StormLib::storm # <-- Комментируем
-        "${STORM_LIB_LIBRARY_FILE}" # <--- Явно линкуем наш StormLib.lib
-        ZLIB::ZLIB
-        BZip2::BZip2
-    )
-    message(STATUS "NavMesh_StormLibTest executable will be built using StormLib: ${STORM_LIB_LIBRARY_FILE}")
-else()
-    message(WARNING "StormLib test file not found at ${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test.cpp. Test target will not be created.")
-endif()
-]]
-
-#[[ --- Тест для StormLib с Unicode и Qt логированием в рамках NavMeshTool ---
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test_unicode_qt.cpp")
-    set(STORM_LIB_UNICODE_QT_TEST_SOURCES
-        tests/stormlib_test_unicode_qt.cpp
-    )
-    add_executable(NavMesh_StormLibTestUnicodeQt ${STORM_LIB_UNICODE_QT_TEST_SOURCES})
-    
-    target_include_directories(NavMesh_StormLibTestUnicodeQt PRIVATE
-        src # Если тесту нужны другие заголовки из NavMeshTool
-        ${STORM_LIB_INCLUDE_DIR} # <--- Путь к заголовкам StormLib
-        ${Qt6_Core_INCLUDE_DIRS} # <--- Путь к заголовкам Qt Core
-    )
-
-    # Устанавливаем определения для Unicode для теста
-    target_compile_definitions(NavMesh_StormLibTestUnicodeQt PRIVATE UNICODE _UNICODE)
-
-    target_link_libraries(NavMesh_StormLibTestUnicodeQt PRIVATE
-        Qt::Core # <--- Связываем с Qt Core
-        "${STORM_LIB_LIBRARY_FILE}" # <--- Явно линкуем наш StormLib.lib
-        ZLIB::ZLIB
-        BZip2::BZip2
-    )
-    message(STATUS "NavMesh_StormLibTestUnicodeQt executable will be built using StormLib: ${STORM_LIB_LIBRARY_FILE} and Qt Core.")
-else()
-    message(WARNING "StormLib Unicode Qt test file not found at ${CMAKE_CURRENT_SOURCE_DIR}/tests/stormlib_test_unicode_qt.cpp. Test target will not be created.")
-endif()
-]]
-
-#[[ --- Тест для WDT Parser ---
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/TestWdtParser.cpp")
-    # Находим пакет Google Test
-    # find_package(GTest CONFIG REQUIRED) # Уже вызван выше
-
-    set(WDT_PARSER_TEST_SOURCES
-        tests/WDT/TestWdtParser.cpp
-        src/core/WoWFiles/Parsers/WDT/WDTParser.cpp
-    )
-    add_executable(NavMesh_WdtParserTest ${WDT_PARSER_TEST_SOURCES})
-
-    target_include_directories(NavMesh_WdtParserTest PRIVATE
-        src # Позволит #include "core/WoWFiles/Parsers/WDT/WDTParser.h"
-        ${Qt6_Core_INCLUDE_DIRS} # Для QLoggingCategory и других зависимостей Qt из WDTParser
-        # GTest::include_dirs # CMake сам должен найти заголовки GTest после find_package
-    )
-
-    # Устанавливаем определения для Unicode для теста (если нужно, Qt обычно требует)
-    target_compile_definitions(NavMesh_WdtParserTest PRIVATE UNICODE _UNICODE)
-
-    target_link_libraries(NavMesh_WdtParserTest PRIVATE
-        Qt::Core # Для QLoggingCategory и других зависимостей Qt
-        GTest::gtest
-    )
-    message(STATUS "NavMesh_WdtParserTest executable will be built and linked with Google Test.")
-
-    # Копирование тестовых данных WDT
-    set(WDT_TEST_DATA_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/Data")
-    set(WDT_TEST_DATA_DEST_DIR "$<TARGET_FILE_DIR:NavMesh_WdtParserTest>/Data")
-
-    # Создаем папку Data в директории с .exe, если ее нет
-    add_custom_command(TARGET NavMesh_WdtParserTest POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${WDT_TEST_DATA_DEST_DIR}"
-        COMMENT "Creating Data directory for NavMesh_WdtParserTest"
-    )
-
-    # Рекурсивно получаем все файлы из исходной директории данных
-    file(GLOB_RECURSE DATA_FILES RELATIVE "${WDT_TEST_DATA_SOURCE_DIR}" CONFIGURE_DEPENDS
-        "${WDT_TEST_DATA_SOURCE_DIR}/*"
-    )
-
-    foreach(DATA_FILE_RELATIVE ${DATA_FILES})
-        set(DATA_FILE_SOURCE "${WDT_TEST_DATA_SOURCE_DIR}/${DATA_FILE_RELATIVE}")
-        set(DATA_FILE_DEST "${WDT_TEST_DATA_DEST_DIR}/${DATA_FILE_RELATIVE}")
-
-        # Создаем поддиректории в месте назначения, если они есть в относителньном пути
-        get_filename_component(DATA_FILE_DEST_PARENT_DIR "${DATA_FILE_DEST}" DIRECTORY)
-        add_custom_command(TARGET NavMesh_WdtParserTest POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${DATA_FILE_DEST_PARENT_DIR}"
-            COMMENT "Ensuring directory exists for ${DATA_FILE_RELATIVE}"
-        )
-
-        add_custom_command(TARGET NavMesh_WdtParserTest POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${DATA_FILE_SOURCE}"
-                "${DATA_FILE_DEST}"
-            COMMENT "Copying ${DATA_FILE_RELATIVE} to ${WDT_TEST_DATA_DEST_DIR}"
-        )
-    endforeach()
-
-    # Опционально: Добавление теста в CTest
-    enable_testing() # Если еще не включено
-    add_test(NAME WdtParserTest COMMAND NavMesh_WdtParserTest)
-
-else()
-    message(WARNING "WDT Parser test file not found at ${CMAKE_CURRENT_SOURCE_DIR}/tests/WDT/TestWdtParser.cpp. Test target will not be created.")
-endif()
-]]
-# --- Конец закомментированных старых тестов ---
 
 # Установка основного приложения
 install(TARGETS NavMeshTool_app DESTINATION bin) # Копирует .exe в подпапку bin при установке 

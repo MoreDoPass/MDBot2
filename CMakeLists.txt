@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 project(MDBot2 LANGUAGES CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     set(CMAKE_TOOLCHAIN_FILE "C:/Dev/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE STRING "Vcpkg toolchain file")
 endif()
@@ -21,11 +23,8 @@ find_package(recastnavigation CONFIG REQUIRED)
 # Подключаем core-библиотеки
 add_subdirectory(src/core)
 
-# Подключаем MapEditor
-add_subdirectory(tools/MapEditor)
-
-# Подключаем Сборку Navmesh
-add_subdirectory(tools/NavMeshTool)
+# Подключаем Сборку Navmesh - ЭТО УБИРАЕМ, Т.К. ЭТО ОТДЕЛЬНЫЙ ПРОЕКТ С ДРУГИМИ ТРЕБОВАНИЯМИ К СБОРКЕ (x64)
+# add_subdirectory(tools/NavMeshTool)
 
 add_executable(MDBot2
     src/main.cpp

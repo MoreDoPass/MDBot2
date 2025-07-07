@@ -230,7 +230,7 @@ struct MCNRData
 {
     struct Normal
     {
-        int8_t x, z, y;  // Порядок как в файле
+        int8_t x, y, z;
     };
     std::array<Normal, 145> normals;
 };

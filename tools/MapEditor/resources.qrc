@@ -1,8 +1,0 @@
-<!DOCTYPE RCC><RCC version="1.0">
-<qresource prefix="/">
-    <!-- Карты теперь будут загружаться из файловой системы -->
-    <!-- <file alias="maps/01.json">../../resources/maps/01.json</file> -->
-    <!-- <file alias="maps/02.json">../../resources/maps/02.json</file> -->
-    <!-- <file alias="maps/530.json">../../resources/maps/530.json</file> -->
-</qresource>
-</RCC>

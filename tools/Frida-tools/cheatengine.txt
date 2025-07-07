@@ -1,0 +1,7 @@
+0075CFE6 - D9 41 10  - fld dword ptr [ecx+10]
+0075CFFB - D8 41 10  - fadd dword ptr [ecx+10]
+00761B18 - 8B 47 10  - mov eax,[edi+10]
+00761E56 - D9 47 10  - fld dword ptr [edi+10]
+00761E5D - D9 5F 10  - fstp dword ptr [edi+10]
+00762093 - 89 4F 10  - mov [edi+10],ecx
+009881D3 - 8B 41 10  - mov eax,[ecx+10]

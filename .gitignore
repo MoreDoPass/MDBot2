@@ -27,4 +27,9 @@ resources/*.mmtile
 CMakeCache.txt
 CMakeFiles/
 *.cmake
-!CMakeLists.txt 
+!CMakeLists.txt
+
+# Cache
+.cache/
+
+# User-specific files 
