@@ -20,10 +20,8 @@
 // Константы для расчетов геометрии, согласно документации ADT
 namespace
 {
-constexpr float TILE_SIZE = 1600.0f / 3.0f;           // ~533.33333 ярдов
-constexpr float MCNK_SIZE_UNITS = TILE_SIZE / 16.0f;  // ~33.33333 ярдов
-constexpr float UNIT_SIZE = MCNK_SIZE_UNITS / 8.0f;   // ~4.16666 ярдов
-constexpr float MAP_CHUNK_SIZE = TILE_SIZE * 32.0f;   // 17066.666
+constexpr float TILE_SIZE = 1600.0f / 3.0f;          // ~533.33333 ярдов
+constexpr float MAP_CHUNK_SIZE = TILE_SIZE * 32.0f;  // 17066.666
 constexpr float PI = 3.1415926535f;
 
 // Вспомогательная структура для 3D-вектора, чтобы сделать код чище
@@ -39,7 +37,10 @@ namespace NavMesh
 {
 
 NavMeshGenerator::NavMeshGenerator(MpqManager& mpqManager)
-    : m_mpqManager(mpqManager)  // Инициализация ссылки в списке инициализации конструктора
+    : m_mpqManager(mpqManager),
+      m_terrainProcessor(),
+      m_wmoProcessor(mpqManager),
+      m_m2Processor(mpqManager)  // Инициализируем M2 процессор
 {
     qCDebug(logNavMeshGenerator) << "NavMeshGenerator created.";
 }
@@ -53,6 +54,8 @@ bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector
     // Очищаем данные от предыдущих запусков (если есть)
     m_worldVertices.clear();
     m_worldTriangleIndices.clear();
+    m_processedWmoIds.clear();
+    m_processedM2Ids.clear();  // Очищаем set для M2
 
     // 1. Загрузка и парсинг WDT
     std::string wdtPath = "World\\maps\\" + mapName + "\\" + mapName + ".wdt";
@@ -100,6 +103,7 @@ bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector
         processAdtChunk(*adtDataOpt, adtEntry.y, adtEntry.x);
     }
 
+    /*
     // 6. Обработка глобального WMO (если есть)
     if (!m_currentWdtData.modfEntries.empty() && !m_currentWdtData.mwmoFilenames.empty())
     {
@@ -226,6 +230,7 @@ bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector
             }
         }
     }
+    */
 
     qInfo(logNavMeshGenerator) << "Finished processing all ADTs for map" << QString::fromStdString(mapName);
 
@@ -263,370 +268,9 @@ void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData,
 {
     // Этот метод теперь является "оркестратором" для обработки одного ADT.
     // Он последовательно вызывает обработчики для каждого типа геометрии.
-    processAdtTerrain(adtData, row, col);
-    processAdtWmos(adtData);
-    processAdtM2s(adtData);
-}
-
-void NavMeshGenerator::processAdtTerrain(const NavMeshTool::ADT::ADTData& adtData, int row, int col)
-{
-    if (m_terrainTileIndices.empty())
-    {
-        buildTerrainTileIndices();
-    }
-
-    for (const auto& mcnk : adtData.mcnkChunks)
-    {
-        if (mcnk.mcvtData.heights.empty()) continue;
-
-        const size_t vertexOffset = m_worldVertices.size() / 3;
-
-        const int pos_x = (col * 16) + mcnk.header.indexX;
-        const int pos_y = (row * 16) + mcnk.header.indexY;
-        const int neighbor_chunk_index_x = pos_x + 1;
-        const int neighbor_chunk_index_y = pos_y + 1;
-
-        std::array<float, 9> VertexYCoordsCache_South;
-        std::array<float, 9> VertexXCoordsCache_West;
-
-        const float final_world_Y = MAP_CHUNK_SIZE - (static_cast<float>(pos_x) * MCNK_SIZE_UNITS);
-        const float final_world_X = MAP_CHUNK_SIZE - (static_cast<float>(pos_y) * MCNK_SIZE_UNITS);
-
-        VertexYCoordsCache_South[0] = final_world_Y;
-        VertexXCoordsCache_West[0] = final_world_X;
-
-        const float step = MCNK_SIZE_UNITS / 8.0f;
-        for (int i = 1; i < 8; ++i)
-        {
-            VertexYCoordsCache_South[i] = final_world_Y - (step * i);
-            VertexXCoordsCache_West[i] = final_world_X - (step * i);
-        }
-
-        VertexYCoordsCache_South[8] = MAP_CHUNK_SIZE - (static_cast<float>(neighbor_chunk_index_x) * MCNK_SIZE_UNITS);
-        VertexXCoordsCache_West[8] = MAP_CHUNK_SIZE - (static_cast<float>(neighbor_chunk_index_y) * MCNK_SIZE_UNITS);
-
-        const float world_z_base = mcnk.header.ypos;
-        size_t mcvt_ptr = 0;
-
-        for (int j = 0; j < 9; ++j)
-        {
-            for (int i = 0; i < 9; ++i)
-            {
-                const float world_x = VertexXCoordsCache_West[j];
-                const float world_y = VertexYCoordsCache_South[i];
-                const float world_z = world_z_base + mcnk.mcvtData.heights[mcvt_ptr + i];
-
-                m_worldVertices.push_back(world_x);
-                m_worldVertices.push_back(world_y);
-                m_worldVertices.push_back(world_z);
-            }
-            mcvt_ptr += 9;
-
-            if (j < 8)
-            {
-                for (int i = 0; i < 8; ++i)
-                {
-                    const float world_x = VertexXCoordsCache_West[j] - (step / 2.0f);
-                    const float world_y = VertexYCoordsCache_South[i] - (step / 2.0f);
-                    const float world_z = world_z_base + mcnk.mcvtData.heights[mcvt_ptr + i];
-
-                    m_worldVertices.push_back(world_x);
-                    m_worldVertices.push_back(world_y);
-                    m_worldVertices.push_back(world_z);
-                }
-                mcvt_ptr += 8;
-            }
-        }
-
-        for (int index : m_terrainTileIndices)
-        {
-            m_worldTriangleIndices.push_back(static_cast<int>(vertexOffset + index));
-        }
-    }
-}
-
-void NavMeshGenerator::processAdtWmos(const NavMeshTool::ADT::ADTData& adtData)
-{
-    // Проходим по каждому определению WMO, размещенному на этом ADT
-    for (const auto& wmoDef : adtData.modfDefs)
-    {
-        // 1. Получаем имя файла WMO
-        if (wmoDef.nameId >= adtData.wmoPaths.size())
-        {
-            qWarning(logNavMeshGenerator) << "Invalid WMO nameId:" << wmoDef.nameId;
-            continue;
-        }
-        const std::string& wmoPath = adtData.wmoPaths[wmoDef.nameId];
-
-        // 2. Читаем корневой WMO файл
-        std::vector<unsigned char> wmoBuffer;
-        if (!m_mpqManager.readFile(wmoPath, wmoBuffer))
-        {
-            qWarning(logNavMeshGenerator) << "Could not read WMO file:" << QString::fromStdString(wmoPath);
-            continue;
-        }
-
-        // 3. Создаем fileProvider для парсера, чтобы он мог догружать доп. файлы (группы, M2 и т.д.)
-        auto fileProvider = [this, &wmoPath](const std::string& filePath) -> std::optional<std::vector<unsigned char>>
-        {
-            std::string fullPath = filePath;
-
-            // WMO-группы могут иметь относительные пути. Мы строим полный путь, используя путь к корневому WMO.
-            // Doodads (M2) обычно имеют полный путь от корня MPQ.
-            // Проверяем наличие разделителей пути, чтобы отличить их.
-            if (filePath.find('\\') == std::string::npos && filePath.find('/') == std::string::npos)
-            {
-                std::string wmoDir;
-                const auto last_slash = wmoPath.find_last_of("/\\");
-                if (std::string::npos != last_slash)
-                {
-                    wmoDir = wmoPath.substr(0, last_slash + 1);
-                }
-                fullPath = wmoDir + filePath;
-            }
-
-            // В файлах данных модели могут быть указаны с расширениями .MDX или .MDL,
-            // но в MPQ-архивах они хранятся как .M2. Выполняем замену.
-            std::string pathForMpq = fullPath;
-            const auto extPos = pathForMpq.rfind('.');
-            if (extPos != std::string::npos)
-            {
-                // Сравнение расширения без учета регистра.
-                if (_stricmp(pathForMpq.c_str() + extPos, ".MDX") == 0 ||
-                    _stricmp(pathForMpq.c_str() + extPos, ".MDL") == 0)
-                {
-                    pathForMpq.replace(extPos, 4, ".M2");
-                }
-            }
-
-            std::vector<unsigned char> buffer;
-            if (m_mpqManager.readFile(pathForMpq, buffer))
-            {
-                return buffer;
-            }
-
-            // Если чтение с заменой на .M2 не удалось, пробуем исходный путь.
-            // Это может быть полезно для каких-то редких случаев или нестандартных файлов.
-            if (pathForMpq != fullPath)
-            {
-                if (m_mpqManager.readFile(fullPath, buffer))
-                {
-                    return buffer;
-                }
-            }
-
-            return std::nullopt;
-        };
-
-        // 4. Парсим WMO
-        auto wmoDataOpt = m_wmoParser.parse(wmoPath, wmoBuffer, fileProvider);
-        if (!wmoDataOpt)
-        {
-            qWarning(logNavMeshGenerator) << "Could not parse WMO file:" << QString::fromStdString(wmoPath);
-            continue;
-        }
-
-        // 5. Трансформация и добавление геометрии
-        const auto& wmoData = *wmoDataOpt;
-        const size_t vertexOffset = m_worldVertices.size() / 3;
-
-        // Матрица трансформации (согласно wowdev.wiki).
-        // Координаты для WMO в чанке MODF являются "сырыми" и требуют
-        // преобразования для получения мировых координат.
-        const float posX = MAP_CHUNK_SIZE - wmoDef.position.y;
-        const float posY = MAP_CHUNK_SIZE - wmoDef.position.x;
-        const float posZ = wmoDef.position.z;
-
-        const float rotX_rad = wmoDef.rotation.y * (PI / 180.0f);
-        const float rotY_rad = wmoDef.rotation.z * (PI / 180.0f);
-        const float rotZ_rad = wmoDef.rotation.x * (PI / 180.0f);
-
-        for (const auto& wmoVert : wmoData.vertices)
-        {
-            // Конвертируем вершину из локальной системы координат модели (Y-up)
-            // в локальную систему координат WoW (Z-up) перед вращением.
-            // WoW X (юг)   = -Mod Y
-            // WoW Y (запад) = -Mod X
-            // WoW Z (вверх) =  Mod Z
-            // Однако, судя по всему, модели экспортированы в левосторонней системе,
-            // поэтому для корректного отображения используем следующую трансформацию:
-            Vec3 vert = {-wmoVert.y, -wmoVert.x, wmoVert.z};
-
-            // Применяем вращение (Z, Y, X)
-            // Вращение вокруг Z
-            float newX = vert.x * cos(rotZ_rad) - vert.y * sin(rotZ_rad);
-            float newY = vert.x * sin(rotZ_rad) + vert.y * cos(rotZ_rad);
-            vert.x = newX;
-            vert.y = newY;
-
-            // Вращение вокруг Y
-            newX = vert.x * cos(rotY_rad) + vert.z * sin(rotY_rad);
-            float newZ = -vert.x * sin(rotY_rad) + vert.z * cos(rotY_rad);
-            vert.x = newX;
-            vert.z = newZ;
-
-            // Вращение вокруг X
-            newY = vert.y * cos(rotX_rad) - vert.z * sin(rotX_rad);
-            newZ = vert.y * sin(rotX_rad) + vert.z * cos(rotX_rad);
-            vert.y = newY;
-            vert.z = newZ;
-
-            // Применяем позиционирование
-            m_worldVertices.push_back(vert.x + posX);
-            m_worldVertices.push_back(vert.y + posY);
-            m_worldVertices.push_back(vert.z + posZ);
-        }
-
-        for (int index : wmoData.indices)
-        {
-            m_worldTriangleIndices.push_back(static_cast<int>(vertexOffset + index));
-        }
-    }
-}
-
-void NavMeshGenerator::processAdtM2s(const NavMeshTool::ADT::ADTData& adtData)
-{
-    // Проходим по каждому определению M2 (doodad), размещенному на этом ADT
-    for (const auto& m2Def : adtData.mddfDefs)
-    {
-        // 1. Получаем имя файла M2
-        if (m2Def.nameId >= adtData.doodadPaths.size())
-        {
-            qWarning(logNavMeshGenerator) << "Invalid M2 nameId:" << m2Def.nameId;
-            continue;
-        }
-        const std::string& m2Path = adtData.doodadPaths[m2Def.nameId];
-
-        // 2. Читаем файл модели M2
-        // В файлах данных модели могут быть указаны с расширениями .MDX или .MDL,
-        // но в MPQ-архивах они хранятся как .M2. Выполняем замену.
-        std::string pathForMpq = m2Path;
-        const auto extPos = pathForMpq.rfind('.');
-        if (extPos != std::string::npos)
-        {
-            if (_stricmp(pathForMpq.c_str() + extPos, ".MDX") == 0 ||
-                _stricmp(pathForMpq.c_str() + extPos, ".MDL") == 0)
-            {
-                pathForMpq.replace(extPos, 4, ".M2");
-            }
-        }
-
-        std::vector<unsigned char> m2Buffer;
-        if (!m_mpqManager.readFile(pathForMpq, m2Buffer))
-        {
-            // Попробуем прочитать с оригинальным путем, если с .M2 не вышло
-            if (pathForMpq != m2Path && m_mpqManager.readFile(m2Path, m2Buffer))
-            {
-                // Успех, продолжаем
-            }
-            else
-            {
-                qWarning(logNavMeshGenerator) << "Could not read M2 file:" << QString::fromStdString(m2Path)
-                                              << "(tried as" << QString::fromStdString(pathForMpq) << ")";
-                continue;
-            }
-        }
-
-        // 3. Парсим M2
-        auto m2DataOpt = m_m2Parser.parse(m2Buffer);
-        if (!m2DataOpt)
-        {
-            qWarning(logNavMeshGenerator) << "Could not parse M2 file:" << QString::fromStdString(pathForMpq);
-            continue;
-        }
-
-        // 4. Трансформация и добавление геометрии
-        const auto& m2Data = *m2DataOpt;
-        const size_t vertexOffset = m_worldVertices.size() / 3;
-
-        // Координаты для M2, как и для WMO, требуют преобразования.
-        const float posX = MAP_CHUNK_SIZE - m2Def.position.y;
-        const float posY = MAP_CHUNK_SIZE - m2Def.position.x;
-        const float posZ = m2Def.position.z;
-
-        const float rotX_rad = m2Def.rotation.y * (PI / 180.0f);
-        const float rotY_rad = m2Def.rotation.z * (PI / 180.0f);
-        const float rotZ_rad = m2Def.rotation.x * (PI / 180.0f);
-
-        const float scaleFactor = static_cast<float>(m2Def.scale) / 1024.0f;
-
-        for (const auto& m2Vert : m2Data.vertices)
-        {
-            // Конвертируем вершину из локальной системы координат модели
-            // в локальную систему координат WoW (как и для WMO).
-            Vec3 vert = {-m2Vert.y, -m2Vert.x, m2Vert.z};
-
-            // Применяем масштаб
-            vert.x *= scaleFactor;
-            vert.y *= scaleFactor;
-            vert.z *= scaleFactor;
-
-            // Применяем вращение (Z, Y, X)
-            // Вращение вокруг Z
-            float newX = vert.x * cos(rotZ_rad) - vert.y * sin(rotZ_rad);
-            float newY = vert.x * sin(rotZ_rad) + vert.y * cos(rotZ_rad);
-            vert.x = newX;
-            vert.y = newY;
-
-            // Вращение вокруг Y
-            newX = vert.x * cos(rotY_rad) + vert.z * sin(rotY_rad);
-            float newZ = -vert.x * sin(rotY_rad) + vert.z * cos(rotY_rad);
-            vert.x = newX;
-            vert.z = newZ;
-
-            // Вращение вокруг X
-            newY = vert.y * cos(rotX_rad) - vert.z * sin(rotX_rad);
-            newZ = vert.y * sin(rotX_rad) + vert.z * cos(rotX_rad);
-            vert.y = newY;
-            vert.z = newZ;
-
-            // Применяем позиционирование
-            m_worldVertices.push_back(vert.x + posX);
-            m_worldVertices.push_back(vert.y + posY);
-            m_worldVertices.push_back(vert.z + posZ);
-        }
-
-        for (int index : m2Data.indices)
-        {
-            m_worldTriangleIndices.push_back(static_cast<int>(vertexOffset + index));
-        }
-    }
-}
-
-void NavMeshGenerator::buildTerrainTileIndices()
-{
-    m_terrainTileIndices.clear();
-    m_terrainTileIndices.reserve(8 * 8 * 4 * 3);
-
-    for (int i = 0; i < 8; ++i)
-    {
-        for (int j = 0; j < 8; ++j)
-        {
-            const int outer_grid_stride = 17;
-
-            const int idx_A = (i * outer_grid_stride) + j;
-            const int idx_B = idx_A + 1;
-            const int idx_X = (i * outer_grid_stride) + 9 + j;
-            const int idx_C = idx_A + outer_grid_stride;
-            const int idx_D = idx_B + outer_grid_stride;
-
-            m_terrainTileIndices.push_back(idx_X);
-            m_terrainTileIndices.push_back(idx_A);
-            m_terrainTileIndices.push_back(idx_C);
-
-            m_terrainTileIndices.push_back(idx_X);
-            m_terrainTileIndices.push_back(idx_B);
-            m_terrainTileIndices.push_back(idx_A);
-
-            m_terrainTileIndices.push_back(idx_X);
-            m_terrainTileIndices.push_back(idx_D);
-            m_terrainTileIndices.push_back(idx_B);
-
-            m_terrainTileIndices.push_back(idx_X);
-            m_terrainTileIndices.push_back(idx_C);
-            m_terrainTileIndices.push_back(idx_D);
-        }
-    }
+    m_terrainProcessor.process(adtData, row, col, m_worldVertices, m_worldTriangleIndices);
+    m_wmoProcessor.process(adtData, m_processedWmoIds, m_worldVertices, m_worldTriangleIndices);
+    m_m2Processor.process(adtData, m_processedM2Ids, m_worldVertices, m_worldTriangleIndices);
 }
 
 bool NavMeshGenerator::saveToObj(const std::string& filepath) const

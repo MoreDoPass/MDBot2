@@ -49,6 +49,9 @@ set(NAV_MESH_TOOL_APP_SOURCES
     src/core/WoWFiles/Parsers/M2/M2Parser.cpp
     src/core/WoWFiles/Parsers/WMO/WMOParser.cpp
     src/core/NavMeshGenerator/NavMeshGenerator.cpp
+    src/core/NavMeshGenerator/Processors/TerrainProcessor.cpp # <--- Добавили новый файл
+    src/core/NavMeshGenerator/Processors/WmoProcessor.cpp # <--- И еще один
+    src/core/NavMeshGenerator/Processors/M2Processor.cpp # <-- Добавили новый файл
 )
 
 # Создаем исполняемый файл приложения
@@ -114,6 +117,8 @@ set(NAVTOOL_CORE_TESTED_SOURCES
     src/core/WoWFiles/Parsers/ADT/ADTParser.cpp
     src/core/WoWFiles/Parsers/M2/M2Parser.cpp
     src/core/WoWFiles/Parsers/WMO/WMOParser.cpp
+    src/core/NavMeshGenerator/Processors/TerrainProcessor.cpp # <--- И сюда тоже
+    src/core/NavMeshGenerator/Processors/WmoProcessor.cpp # <--- И сюда
     src/core/MpqManager/MpqManager.cpp
     # Добавьте сюда другие .cpp файлы из src/core, которые нужны тестам
 )

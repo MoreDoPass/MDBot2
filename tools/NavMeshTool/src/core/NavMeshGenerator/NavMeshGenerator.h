@@ -2,15 +2,17 @@
 
 #include <vector>
 #include <string>
-#include <cstdint>           // Для uint32_t или int в Triangle
-#include <QLoggingCategory>  // Добавлено для логирования
-#include <map>               // Добавлено для std::map
+#include <cstdint>
+#include <QLoggingCategory>
+#include <map>
+#include <unordered_set>  // Подключаем для std::unordered_set
 
-// Подключаем парсер WDT
 #include "core/WoWFiles/Parsers/WDT/WDTParser.h"
 #include "core/WoWFiles/Parsers/ADT/ADTParser.h"
-#include "core/WoWFiles/Parsers/WMO/WMOParser.h"
 #include "core/WoWFiles/Parsers/M2/M2Parser.h"
+#include "Processors/TerrainProcessor.h"  // Включаем новый обработчик
+#include "Processors/WMOProcessor.h"      // Включаем новый обработчик WMO
+#include "Processors/M2Processor.h"       // Включаем M2 обработчик
 
 // Прямое объявление (Forward declaration) MpqManager, чтобы не подключать его заголовок сюда
 // Это уменьшает связанность и время компиляции.
@@ -22,27 +24,6 @@ Q_DECLARE_LOGGING_CATEGORY(logNavMeshGenerator)  // Объявление кат�
 
 namespace NavMesh
 {  // Обернем все связанное с NavMesh в свое пространство имен
-
-/**
- * @brief Структура для представления 3D вершины.
- */
-struct Vertex
-{
-    float x, y, z;
-};
-
-/**
- * @brief Структура для представления треугольника через индексы его вершин.
- * Индексы указывают на элементы в общем массиве вершин.
- */
-struct Triangle
-{
-    // Используем int или uint32_t в зависимости от ожидаемого количества вершин.
-    // int обычно достаточно для большинства практических случаев.
-    int v1_idx;
-    int v2_idx;
-    int v3_idx;
-};
 
 /**
  * @brief Основной класс для генерации навигационной сетки (NavMesh).
@@ -96,19 +77,25 @@ class NavMeshGenerator
     MpqManager& m_mpqManager;                         // Ссылка на MPQ менеджер
     std::map<uint32_t, std::string> m_mapDbcEntries;  // Хранилище для данных из Map.dbc (ID -> DirectoryName)
 
-    NavMeshTool::WDT::Parser m_wdtParser;        // Экземпляр парсера WDT
-    NavMeshTool::ADT::Parser m_adtParser;        // Экземпляр парсера ADT
-    NavMeshTool::WMO::Parser m_wmoParser;        // Экземпляр парсера WMO
-    NavMeshTool::M2::Parser m_m2Parser;          // Экземпляр парсера M2
+    NavMeshTool::WDT::Parser m_wdtParser;  // Экземпляр парсера WDT
+    NavMeshTool::ADT::Parser m_adtParser;  // Экземпляр парсера ADT
+    // m_m2Parser теперь будет внутри M2Processor
+    NavMesh::Processors::TerrainProcessor m_terrainProcessor;  // Обработчик ландшафта
+    NavMesh::Processors::WmoProcessor m_wmoProcessor;          // Обработчик WMO
+    NavMesh::Processors::M2Processor m_m2Processor;            // <--- Добавили
+
     NavMeshTool::WDT::WDTData m_currentWdtData;  // Данные, извлеченные из текущего WDT файла
 
     // Собранная геометрия мира
     // Вершины хранятся как набор координат: [x1, y1, z1, x2, y2, z2, ...]
     std::vector<float> m_worldVertices;
-    // Индексы треугольников: каждый int - это индекс вершины в m_worldVertices / 3.
+    // Индексы треугольников: каждый int - это индекс вершины в m_worldVertices.
     // [idx_v1_t1, idx_v2_t1, idx_v3_t1, idx_v1_t2, idx_v2_t2, idx_v3_t2, ...]
     std::vector<int> m_worldTriangleIndices;
-    std::vector<int> m_terrainTileIndices;  // Пред-рассчитанные индексы для одного MCNK
+
+    // Контейнеры для отслеживания уникальных ID обработанных объектов
+    std::unordered_set<uint32_t> m_processedWmoIds;
+    std::unordered_set<uint32_t> m_processedM2Ids;  // <--- Добавили
 
     /**
      * @brief Парсит данные файла Map.dbc.
@@ -117,26 +104,6 @@ class NavMeshGenerator
     void parseMapDbc(const std::vector<unsigned char>& buffer);
 
     void processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
-
-    /**
-     * @brief Обрабатывает геометрию ландшафта одного ADT-файла.
-     * @details Этот метод извлекает данные о вершинах из каждого чанка (MCNK) ADT.
-     * Ключевой особенностью является то, что заголовок MCNK уже содержит
-     * абсолютные мировые координаты центра чанка. Метод использует эти координаты
-     * напрямую, без дополнительных преобразований. Вершины ландшафта (из MCVT)
-     * представляют собой относительные смещения по высоте от этой центральной точки.
-     * Метод корректно рассчитывает итоговые мировые координаты для каждой из 145 вершин
-     * (9x9 внешних и 8x8 внутренних) и добавляет их в глобальный пул вершин.
-     * @param adtData Спарсенные данные ADT.
-     * @param row Индекс строки ADT на карте мира (не используется напрямую, для контекста).
-     * @param col Индекс колонки ADT на карте мира (не используется напрямую, для контекста).
-     */
-    void processAdtTerrain(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
-
-    void processAdtWmos(const NavMeshTool::ADT::ADTData& adtData);
-    void processAdtM2s(const NavMeshTool::ADT::ADTData& adtData);
-
-    void buildTerrainTileIndices();
 
     // Здесь будут приватные методы для парсинга WDT, ADT, WMO, M2,
     // трансформации координат и т.д.
