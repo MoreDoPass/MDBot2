@@ -48,7 +48,7 @@ int main(int argc, char *argv[])
 
     // Пытаемся загрузить данные для конкретной карты
     // Пока что adtCoords не используются, передаем пустой вектор
-    std::string mapNameToLoad = "BlackTemple";
+    std::string mapNameToLoad = "Azeroth";
     if (navMeshGenerator.loadMapData(mapNameToLoad, {}))
     {
         qCInfo(logNavMeshToolApp) << "Successfully initiated loading for map:" << QString::fromStdString(mapNameToLoad);

@@ -6,7 +6,6 @@ def parse_chunk_header(f):
     try:
         chunk_id_bytes = f.read(4)
         if not chunk_id_bytes: return None, 0
-        # Чанк ID хранится в little-endian, переворачиваем для сравнения
         chunk_id_str = chunk_id_bytes.decode(errors='ignore')[::-1]
         chunk_size = struct.unpack('<I', f.read(4))[0]
         return chunk_id_str, chunk_size
@@ -20,12 +19,12 @@ def get_string_from_data(data, offset):
     if end_of_string == -1: return "String not terminated"
     return data[offset:end_of_string].decode(errors='ignore')
 
-def analyze_adt_modf(filepath):
+def analyze_adt_mddf(filepath):
     """
-    Анализирует .adt файл и выводит "сырые" данные из чанка MODF.
+    Анализирует .adt файл и выводит "сырые" данные из чанка MDDF.
     """
     filename = os.path.basename(filepath)
-    print(f"--- Анализ MODF для файла: {filename} ---")
+    print(f"--- Анализ MDDF для файла: {filename} ---")
 
     try:
         with open(filepath, 'rb') as f:
@@ -35,7 +34,6 @@ def analyze_adt_modf(filepath):
                 print(f"Ошибка: Неверный формат файла ADT. Ожидался 'MVER', найдено '{mver_id}'.")
                 return
             
-            # Пропускаем данные MVER (4 байта версии)
             f.seek(mver_size, 1)
 
             mhdr_id, mhdr_size = parse_chunk_header(f)
@@ -47,84 +45,79 @@ def analyze_adt_modf(filepath):
             mhdr_data = f.read(mhdr_size)
             
             try:
+                # Распаковываем смещения из MHDR
                 # flags, mcin, mtex, mmdx, mmid, mwmo, mwid, mddf, modf
-                # Распаковываем первые 9 * 4 = 36 байт заголовка MHDR
                 mhdr_offsets = struct.unpack_from('<9I', mhdr_data, 0)
-                offset_mwmo = mhdr_offsets[5]
-                offset_mwid = mhdr_offsets[6]
-                offset_modf = mhdr_offsets[8]
+                offset_mmdx = mhdr_offsets[3]
+                offset_mmid = mhdr_offsets[4]
+                offset_mddf = mhdr_offsets[7]
             except struct.error:
-                print("Ошибка: Не удалось распаковать смещения из MHDR. Возможно, чанк слишком мал.")
+                print("Ошибка: Не удалось распаковать смещения из MHDR.")
                 return
 
-            # --- Читаем глобальные данные для WMO ---
-            # MWMO (имена WMO)
-            if offset_mwmo > 0:
-                f.seek(mhdr_data_pos + offset_mwmo)
-                mwmo_id, mwmo_size = parse_chunk_header(f)
-                if mwmo_id == 'MWMO':
-                    mwmo_data = f.read(mwmo_size)
+            # --- Читаем данные для имен M2 (Doodads) ---
+            # MMDX (блок с именами файлов моделей)
+            if offset_mmdx > 0:
+                f.seek(mhdr_data_pos + offset_mmdx)
+                mmdx_id, mmdx_size = parse_chunk_header(f)
+                if mmdx_id == 'MMDX':
+                    mmdx_data = f.read(mmdx_size)
                 else:
-                    mwmo_data = b''
+                    mmdx_data = b''
             else:
-                mwmo_data = b''
+                mmdx_data = b''
 
-            # MWID (смещения для имен WMO)
-            if offset_mwid > 0:
-                f.seek(mhdr_data_pos + offset_mwid)
-                mwid_id, mwid_size = parse_chunk_header(f)
-                if mwid_id == 'MWID':
-                    mwid_offsets = list(struct.unpack(f'<{mwid_size // 4}I', f.read(mwid_size)))
+            # MMID (смещения для имен в MMDX)
+            if offset_mmid > 0:
+                f.seek(mhdr_data_pos + offset_mmid)
+                mmid_id, mmid_size = parse_chunk_header(f)
+                if mmid_id == 'MMID':
+                    mmid_offsets = list(struct.unpack(f'<{mmid_size // 4}I', f.read(mmid_size)))
                 else:
-                    mwid_offsets = []
+                    mmid_offsets = []
             else:
-                mwid_offsets = []
+                mmid_offsets = []
 
-            # MODF (глобальный список всех WMO на тайле)
-            if offset_modf == 0:
-                print("В этом файле ADT нет чанка MODF.\n")
+            # --- MDDF (определения Doodad) ---
+            if offset_mddf == 0:
+                print("В этом файле ADT нет чанка MDDF.\n")
                 return
 
-            f.seek(mhdr_data_pos + offset_modf)
-            modf_id, modf_size = parse_chunk_header(f)
-            if modf_id != 'MODF':
-                print(f"Ошибка: Ожидался чанк MODF, но не найден по смещению. Найдено: {modf_id}")
+            f.seek(mhdr_data_pos + offset_mddf)
+            mddf_id, mddf_size = parse_chunk_header(f)
+            if mddf_id != 'MDDF':
+                print(f"Ошибка: Ожидался чанк MDDF, но не найден по смещению. Найдено: {mddf_id}")
                 return
                 
-            if modf_size == 0:
-                print("Чанк MODF найден, но он пуст (размер 0).\n")
+            if mddf_size == 0:
+                print("Чанк MDDF найден, но он пуст (размер 0).\n")
                 return
 
-            modf_data_raw = f.read(modf_size)
-            num_wmo_defs = modf_size // 64
-            print(f"Найден чанк MODF: {num_wmo_defs} определений WMO моделей.\n")
+            mddf_data_raw = f.read(mddf_size)
+            num_doodad_defs = mddf_size // 36  # SMDoodadDef = 36 байт
+            print(f"Найден чанк MDDF: {num_doodad_defs} определений M2 моделей (doodads).\n")
 
-            # --- Итерация и парсинг каждой записи MODF ---
-            for i in range(num_wmo_defs):
-                wmo_def_raw = modf_data_raw[i*64 : (i+1)*64]
+            # --- Итерация и парсинг каждой записи MDDF ---
+            for i in range(num_doodad_defs):
+                doodad_def_raw = mddf_data_raw[i*36 : (i+1)*36]
                 
+                # nameId, uniqueId, pos(3), rot(3), scale, flags
                 (nameId, uniqueId, 
                  posX, posY, posZ, 
                  rotX, rotY, rotZ,
-                 minX, minY, minZ,
-                 maxX, maxY, maxZ,
-                 flags, doodadSet, nameSet, scale) = struct.unpack('<IIffffffffffffHHHH', wmo_def_raw)
+                 scale, flags) = struct.unpack('<IIffffffHH', doodad_def_raw)
 
-                wmo_name = "Имя не найдено"
-                if nameId < len(mwid_offsets):
-                    wmo_name_offset = mwid_offsets[nameId]
-                    wmo_name = get_string_from_data(mwmo_data, wmo_name_offset)
+                doodad_name = "Имя не найдено"
+                if nameId < len(mmid_offsets):
+                    doodad_name_offset = mmid_offsets[nameId]
+                    doodad_name = get_string_from_data(mmdx_data, doodad_name_offset)
                 
-                print(f"--- Запись WMO #{i} ---")
-                print(f"  Файл:         {wmo_name} (nameId: {nameId})")
+                print(f"--- Doodad #{i} ---")
+                print(f"  Файл:         {doodad_name} (nameId: {nameId})")
                 print(f"  uniqueId:     {uniqueId}")
                 print(f"  position:     (X={posX:.3f}, Y={posY:.3f}, Z={posZ:.3f})")
                 print(f"  rotation:     (X={rotX:.3f}, Y={rotY:.3f}, Z={rotZ:.3f})")
-                print(f"  extents.min:  (X={minX:.3f}, Y={minY:.3f}, Z={minZ:.3f})")
-                print(f"  extents.max:  (X={maxX:.3f}, Y={maxY:.3f}, Z={maxZ:.3f})")
                 print(f"  flags:        {flags} (0x{flags:04X})")
-                print(f"  doodadSet:    {doodadSet}")
-                print(f"  nameSet:      {nameSet}")
                 print(f"  scale:        {scale}")
                 print("")
 
@@ -142,7 +135,7 @@ if __name__ == "__main__":
         if item.lower().endswith('.adt'):
             found_adt = True
             adt_file_path = os.path.join(current_directory, item)
-            analyze_adt_modf(adt_file_path)
+            analyze_adt_mddf(adt_file_path)
 
     if not found_adt:
         print("Не найдено ни одного .adt файла в директории скрипта.")

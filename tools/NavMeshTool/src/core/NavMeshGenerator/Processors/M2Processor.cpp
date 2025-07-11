@@ -1,6 +1,8 @@
 #include "M2Processor.h"
 #include "core/MpqManager/MpqManager.h"
 #include <QLoggingCategory>
+#include <QMatrix4x4>
+#include <QVector3D>
 
 Q_DECLARE_LOGGING_CATEGORY(logNavMeshGenerator)
 
@@ -8,12 +10,6 @@ namespace
 {
 constexpr float TILE_SIZE = 1600.0f / 3.0f;
 constexpr float MAP_CHUNK_SIZE = TILE_SIZE * 32.0f;
-constexpr float PI = 3.1415926535f;
-
-struct Vec3
-{
-    float x, y, z;
-};
 }  // namespace
 
 namespace NavMesh
@@ -72,45 +68,45 @@ void M2Processor::process(const NavMeshTool::ADT::ADTData& adtData, std::unorder
             continue;
         }
 
+        // Трансформация и добавление геометрии M2 с использованием матричного подхода.
+        // Алгоритм полностью основан на рабочем JS-коде, предоставленном пользователем.
+        // Ошибка в предыдущих попытках была в неверном порядке применения матричных операций.
+        // QMatrix4x4 использует pre-multiplication (M = M_new * M_old), как и glMatrix,
+        // поэтому порядок вызовов должен быть идентичен JS-коду.
         const auto& m2Data = *m2DataOpt;
         const size_t vertexOffset = worldVertices.size() / 3;
 
-        const float posX = MAP_CHUNK_SIZE - m2Def.position.y;
-        const float posY = MAP_CHUNK_SIZE - m2Def.position.x;
-        const float posZ = m2Def.position.z;
+        const float posx = MAP_CHUNK_SIZE - m2Def.position.x;
+        const float posy = m2Def.position.y;
+        const float posz = MAP_CHUNK_SIZE - m2Def.position.z;
 
-        const float rotX_rad = m2Def.rotation.y * (PI / 180.0f);
-        const float rotY_rad = m2Def.rotation.z * (PI / 180.0f);
-        const float rotZ_rad = m2Def.rotation.x * (PI / 180.0f);
+        QMatrix4x4 placementMatrix;  // Создаем единичную матрицу
 
+        // 1. Начальный поворот для коррекции системы координат
+        placementMatrix.rotate(90.0f, 1, 0, 0);  // rotateX
+        placementMatrix.rotate(90.0f, 0, 1, 0);  // rotateY
+
+        // 2. Перенос (Translate)
+        placementMatrix.translate(posx, posy, posz);
+
+        // 3. Вращения объекта (Roll, Pitch, Yaw)
+        placementMatrix.rotate(m2Def.rotation.y - 270.0f, 0, 1, 0);  // rotateY
+        placementMatrix.rotate(-m2Def.rotation.x, 0, 0, 1);          // rotateZ
+        placementMatrix.rotate(m2Def.rotation.z - 90.0f, 1, 0, 0);   // rotateX
+
+        // 4. Масштабирование (Scale)
         const float scaleFactor = static_cast<float>(m2Def.scale) / 1024.0f;
+        placementMatrix.scale(scaleFactor);
 
         for (const auto& m2Vert : m2Data.vertices)
         {
-            Vec3 vert = {-m2Vert.y, -m2Vert.x, m2Vert.z};
+            // С новой матрицей трансформации вершины, вероятно, не требуют предварительного преобразования.
+            QVector3D vert(m2Vert.x, m2Vert.y, m2Vert.z);
+            QVector3D transformedVert = placementMatrix.map(vert);
 
-            vert.x *= scaleFactor;
-            vert.y *= scaleFactor;
-            vert.z *= scaleFactor;
-
-            float newX = vert.x * cos(rotZ_rad) - vert.y * sin(rotZ_rad);
-            float newY = vert.x * sin(rotZ_rad) + vert.y * cos(rotZ_rad);
-            vert.x = newX;
-            vert.y = newY;
-
-            newX = vert.x * cos(rotY_rad) + vert.z * sin(rotY_rad);
-            float newZ = -vert.x * sin(rotY_rad) + vert.z * cos(rotY_rad);
-            vert.x = newX;
-            vert.z = newZ;
-
-            newY = vert.y * cos(rotX_rad) - vert.z * sin(rotX_rad);
-            newZ = vert.y * sin(rotX_rad) + vert.z * cos(rotX_rad);
-            vert.y = newY;
-            vert.z = newZ;
-
-            worldVertices.push_back(vert.x + posX);
-            worldVertices.push_back(vert.y + posY);
-            worldVertices.push_back(vert.z + posZ);
+            worldVertices.push_back(transformedVert.x());
+            worldVertices.push_back(transformedVert.y());
+            worldVertices.push_back(transformedVert.z());
         }
 
         for (int index : m2Data.indices)

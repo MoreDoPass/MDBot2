@@ -1,6 +1,8 @@
 #include "WMOProcessor.h"
 #include "core/MpqManager/MpqManager.h"
 #include <QLoggingCategory>
+#include <QMatrix4x4>
+#include <QVector3D>
 
 // Объявляем, что будем использовать эту категорию.
 // Само определение находится в NavMeshGenerator.cpp
@@ -8,16 +10,9 @@ Q_DECLARE_LOGGING_CATEGORY(logNavMeshGenerator)
 
 namespace
 {
-// Константы для расчетов. Можно было бы вынести в общее место, но пока оставим здесь.
+// Константы для расчетов.
 constexpr float TILE_SIZE = 1600.0f / 3.0f;
 constexpr float MAP_CHUNK_SIZE = TILE_SIZE * 32.0f;
-constexpr float PI = 3.1415926535f;
-
-// Вспомогательная структура для 3D-вектора
-struct Vec3
-{
-    float x, y, z;
-};
 }  // namespace
 
 namespace NavMesh
@@ -104,40 +99,58 @@ void WmoProcessor::process(const NavMeshTool::ADT::ADTData& adtData, std::unorde
             continue;
         }
 
-        // 6. Трансформация и добавление геометрии
+        // 6. Трансформация и добавление геометрии с использованием матричного подхода.
+        // Этот код основан на примере с wowdev.wiki для MDDF/MODF чанков.
         const auto& wmoData = *wmoDataOpt;
         const size_t vertexOffset = worldVertices.size() / 3;
 
-        const float posX = MAP_CHUNK_SIZE - wmoDef.position.y;
-        const float posY = MAP_CHUNK_SIZE - wmoDef.position.x;
-        const float posZ = wmoDef.position.z;
+        // Создаем матрицу трансформации для этого WMO.
+        QMatrix4x4 placementMatrix;
 
-        const float rotX_rad = wmoDef.rotation.y * (PI / 180.0f);
-        const float rotY_rad = wmoDef.rotation.z * (PI / 180.0f);
-        const float rotZ_rad = wmoDef.rotation.x * (PI / 180.0f);
+        // 1. Преобразуем координаты из Y-up системы ADT в мировую.
+        // wowdev: "The position field in MODF is in Y-up coordinate system..."
+        // "To get a proper positioning you need to translate those values to world coordinate system
+        // by substracting them x and z from 17,066." (17066.666 is 32 * TILE_SIZE)
+        // ВАЖНО: position.y из файла - это ВЫСОТА, а не координата на плоскости.
+        // Согласно таблице на wowdev, оси в MODF-чанке соответствуют мировым осям следующим образом:
+        // MODF Z (North-South)-> World X
+        // MODF X (West-East) -> World Y
+        // MODF Y (Up)        -> World Z
+        const float worldX = MAP_CHUNK_SIZE - wmoDef.position.z;
+        const float worldY = MAP_CHUNK_SIZE - wmoDef.position.x;
+        const float worldZ = wmoDef.position.y;
 
+        // Порядок вызовов для QMatrix4x4 важен, т.к. она использует post-multiplication.
+        // Чтобы получить финальную матрицу World = Translate * Rotate,
+        // нужно сначала применить перенос, а затем вращение.
+
+        // 1. Перенос (Translate)
+        placementMatrix.translate(worldX, worldY, worldZ);
+
+        // 2. Вращение (Rotate)
+        // Углы вращения из файла применяются к соответствующим мировым осям.
+        // rotation.y (Yaw)   -> вращение вокруг мировой оси Z (Up)
+        // rotation.x (Pitch) -> вращение вокруг мировой оси Y (West-East)
+        // rotation.z (Roll)  -> вращение вокруг мировой оси X (North-South)
+        placementMatrix.rotate(wmoDef.rotation.y, 0, 0, 1);  // Yaw   вокруг мировой Z
+        placementMatrix.rotate(wmoDef.rotation.x, 0, 1, 0);  // Pitch вокруг мировой Y
+        placementMatrix.rotate(wmoDef.rotation.z, 1, 0, 0);  // Roll  вокруг мировой X
+
+        // Наконец, применяем эту матрицу ко всем вершинам WMO.
         for (const auto& wmoVert : wmoData.vertices)
         {
-            Vec3 vert = {-wmoVert.y, -wmoVert.x, wmoVert.z};
+            // Сначала преобразуем вершину из локальной системы координат модели WMO в мировую систему.
+            // WMO X (N->S) -> World -X
+            // WMO Y (W->E) -> World -Y
+            // WMO Z (Up)   -> World +Z
+            QVector3D vert(-wmoVert.x, -wmoVert.y, wmoVert.z);
 
-            float newX = vert.x * cos(rotZ_rad) - vert.y * sin(rotZ_rad);
-            float newY = vert.x * sin(rotZ_rad) + vert.y * cos(rotZ_rad);
-            vert.x = newX;
-            vert.y = newY;
+            // Затем применяем к ней матрицу трансформации (поворот и перенос).
+            QVector3D transformedVert = placementMatrix.map(vert);
 
-            newX = vert.x * cos(rotY_rad) + vert.z * sin(rotY_rad);
-            float newZ = -vert.x * sin(rotY_rad) + vert.z * cos(rotY_rad);
-            vert.x = newX;
-            vert.z = newZ;
-
-            newY = vert.y * cos(rotX_rad) - vert.z * sin(rotX_rad);
-            newZ = vert.y * sin(rotX_rad) + vert.z * cos(rotX_rad);
-            vert.y = newY;
-            vert.z = newZ;
-
-            worldVertices.push_back(vert.x + posX);
-            worldVertices.push_back(vert.y + posY);
-            worldVertices.push_back(vert.z + posZ);
+            worldVertices.push_back(transformedVert.x());
+            worldVertices.push_back(transformedVert.y());
+            worldVertices.push_back(transformedVert.z());
         }
 
         for (int index : wmoData.indices)

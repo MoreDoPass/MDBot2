@@ -510,7 +510,7 @@ bool Parser::parseMMDX(std::istream& stream, ADTData& adtData, std::vector<std::
 
     adtData.mmdxData.resize(header.dataSize);
     stream.read(adtData.mmdxData.data(), header.dataSize);
-    adtData.mmdxData.push_back('\\0');  // Add a safety null terminator
+    adtData.mmdxData.push_back('\0');  // Add a safety null terminator
     log("MMDX: Successfully parsed " + std::to_string(header.dataSize) + " bytes of model path data.", logMessages);
     return true;
 }
@@ -562,7 +562,7 @@ bool Parser::parseMWMO(std::istream& stream, ADTData& adtData, std::vector<std::
 
     adtData.mwmoData.resize(header.dataSize);
     stream.read(adtData.mwmoData.data(), header.dataSize);
-    adtData.mwmoData.push_back('\\0');  // Add a safety null terminator
+    adtData.mwmoData.push_back('\0');  // Add a safety null terminator
     log("MWMO: Successfully parsed " + std::to_string(header.dataSize) + " bytes of WMO path data.", logMessages);
     return true;
 }
