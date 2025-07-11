@@ -15,7 +15,7 @@ set(CMAKE_AUTOMOC ON) # Для Qt Meta-Object Compiler
 
 
 # Поиск необходимых пакетов
-find_package(Qt6 COMPONENTS Core Widgets REQUIRED) # Добавили Widgets
+find_package(Qt6 COMPONENTS Core Widgets Gui REQUIRED) # Добавили Gui
 # find_package(StormLib CONFIG REQUIRED) # Не используем, подключаем вручную
 find_package(ZLIB REQUIRED)
 find_package(BZip2 REQUIRED)
@@ -117,8 +117,10 @@ set(NAVTOOL_CORE_TESTED_SOURCES
     src/core/WoWFiles/Parsers/ADT/ADTParser.cpp
     src/core/WoWFiles/Parsers/M2/M2Parser.cpp
     src/core/WoWFiles/Parsers/WMO/WMOParser.cpp
+    src/core/NavMeshGenerator/NavMeshGenerator.cpp # <--- Добавляем этот файл
     src/core/NavMeshGenerator/Processors/TerrainProcessor.cpp # <--- И сюда тоже
     src/core/NavMeshGenerator/Processors/WmoProcessor.cpp # <--- И сюда
+    src/core/NavMeshGenerator/Processors/M2Processor.cpp  # <--- И этот тоже
     src/core/MpqManager/MpqManager.cpp
     # Добавьте сюда другие .cpp файлы из src/core, которые нужны тестам
 )
@@ -131,8 +133,8 @@ set(NAVTOOL_TEST_SOURCES
     #tests/StormLib/TestStormLibIntegration.cpp
     #tests/ADT/TestADTParser.cpp
     #tests/M2/TestM2Parser.cpp
-    #tests/WMO/TestWMOParser.cpp
-    tests/NavMeshGenerator/processAdtTerrain.cpp
+    tests/WMO/TestWMOParser.cpp
+    tests/NavMeshGenerator/processAdtTerrain.cpp # <--- И этот
     # Добавляйте сюда другие Test*.cpp файлы
 )
 
@@ -154,6 +156,7 @@ if(GTest_FOUND)
 
     target_link_libraries(NavMeshToolTests PRIVATE
         Qt::Core       # Для QLoggingCategory, QCoreApplication и т.д.
+        Qt::Gui        # Для QMatrix4x4, QQuaternion и т.д.
         # Qt::Widgets    # Добавлять, если тесты будут использовать GUI элементы Qt
         GTest::gtest
         GTest::gmock   # Если используете Google Mock

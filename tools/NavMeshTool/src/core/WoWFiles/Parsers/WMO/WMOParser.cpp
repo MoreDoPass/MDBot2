@@ -275,49 +275,61 @@ std::optional<WmoData> Parser::parse(const std::string& rootWmoName, const std::
 
         if (groupData.is_parsed)
         {
-            uint32_t vertexOffset = static_cast<uint32_t>(wmoData.vertices.size());
-            std::set<std::tuple<uint16_t, uint16_t, uint16_t>> collision_triangles;
-
-            // Use collision BSP if available, otherwise use all visual triangles.
-            if ((groupData.header.flags & 0x800) && !groupData.bsp_nodes.empty() && !groupData.bsp_refs.empty())
+            // Используем ТОЛЬКО BSP-дерево как единственный источник информации о коллизии.
+            // Все группы без явного BSP-дерева будут проигнорированы.
+            if (!groupData.bsp_nodes.empty() && !groupData.bsp_refs.empty())
             {
+                // Шаг 1: Получаем "грязный" список полигонов из BSP
+                std::set<uint16_t> bsp_triangle_indices;
                 for (const auto& node : groupData.bsp_nodes)
                 {
-                    if (node.flags & 0x4)  // Is leaf node
+                    if (node.flags & 0x4)  // Листовой узел
                     {
-                        for (int j = 0; j < node.nFaces; ++j)
+                        for (uint32_t j = 0; j < node.nFaces; ++j)
                         {
-                            const uint16_t tri_index_in_movi = groupData.bsp_refs[node.faceStart + j];
-
-                            if ((tri_index_in_movi * 3 + 2) < groupData.indices.size())
-                            {
-                                uint16_t tri[3] = {groupData.indices[tri_index_in_movi * 3],
-                                                   groupData.indices[tri_index_in_movi * 3 + 1],
-                                                   groupData.indices[tri_index_in_movi * 3 + 2]};
-                                std::sort(std::begin(tri), std::end(tri));
-                                collision_triangles.insert({tri[0], tri[1], tri[2]});
-                            }
+                            bsp_triangle_indices.insert(groupData.bsp_refs[node.faceStart + j]);
                         }
                     }
                 }
-            }
-            else
-            {
-                for (size_t j = 0; j < groupData.indices.size() / 3; ++j)
-                {
-                    uint16_t tri[3] = {groupData.indices[j * 3], groupData.indices[j * 3 + 1],
-                                       groupData.indices[j * 3 + 2]};
-                    std::sort(std::begin(tri), std::end(tri));
-                    collision_triangles.insert({tri[0], tri[1], tri[2]});
-                }
-            }
 
-            for (const auto& v : groupData.vertices) wmoData.vertices.push_back(v.position);
-            for (const auto& t : collision_triangles)
-            {
-                wmoData.indices.push_back(std::get<0>(t) + vertexOffset);
-                wmoData.indices.push_back(std::get<1>(t) + vertexOffset);
-                wmoData.indices.push_back(std::get<2>(t) + vertexOffset);
+                // Шаг 2: Применяем второй, уточняющий фильтр по флагам MOPY
+                std::vector<uint16_t> final_triangle_indices;
+                for (const auto& tri_index : bsp_triangle_indices)
+                {
+                    // Если данных о флагах нет (на всякий случай), или флаг "no-walk" (0x04) НЕ установлен,
+                    // то этот полигон нам подходит.
+                    if (groupData.polygons.empty() ||
+                        (tri_index < groupData.polygons.size() && !(groupData.polygons[tri_index].flags & 0x04)))
+                    {
+                        final_triangle_indices.push_back(tri_index);
+                    }
+                }
+
+                // Шаг 3: Собираем геометрию только из отфильтрованных полигонов
+                std::map<uint16_t, uint32_t> index_map;  // Карта старых индексов вершин на новые
+                for (const auto& tri_index : final_triangle_indices)
+                {
+                    // Убеждаемся, что мы не выходим за пределы массива индексов
+                    if ((tri_index * 3 + 2) >= groupData.indices.size()) continue;
+
+                    // Для каждой из 3-х вершин треугольника
+                    for (int v_num = 0; v_num < 3; ++v_num)
+                    {
+                        uint16_t old_vertex_index = groupData.indices[tri_index * 3 + v_num];
+
+                        // Если вершина еще не была добавлена, добавляем ее и сохраняем ее новый индекс
+                        if (index_map.find(old_vertex_index) == index_map.end())
+                        {
+                            wmoData.vertices.push_back(groupData.vertices[old_vertex_index].position);
+                            index_map[old_vertex_index] = static_cast<uint32_t>(wmoData.vertices.size() - 1);
+                        }
+                    }
+
+                    // Добавляем индексы треугольника с новыми, переназначенными индексами вершин
+                    wmoData.indices.push_back(index_map.at(groupData.indices[tri_index * 3 + 0]));
+                    wmoData.indices.push_back(index_map.at(groupData.indices[tri_index * 3 + 1]));
+                    wmoData.indices.push_back(index_map.at(groupData.indices[tri_index * 3 + 2]));
+                }
             }
         }
     }
