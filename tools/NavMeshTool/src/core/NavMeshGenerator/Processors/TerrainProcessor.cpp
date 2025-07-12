@@ -20,11 +20,6 @@ TerrainProcessor::TerrainProcessor() = default;
 void TerrainProcessor::process(const NavMeshTool::ADT::ADTData& adtData, int row, int col,
                                std::vector<float>& worldVertices, std::vector<int>& worldTriangleIndices)
 {
-    if (m_terrainTileIndices.empty())
-    {
-        buildTerrainTileIndices();
-    }
-
     for (const auto& mcnk : adtData.mcnkChunks)
     {
         if (mcnk.mcvtData.heights.empty())
@@ -91,13 +86,58 @@ void TerrainProcessor::process(const NavMeshTool::ADT::ADTData& adtData, int row
             }
         }
 
-        for (int index : m_terrainTileIndices)
+        // --- ИЗМЕНЕНО: Умная генерация индексов с учетом дыр ---
+        // Вместо слепого копирования шаблона, итерируемся по сетке 8x8.
+        const uint16_t holes_mask = mcnk.header.holes_low_res;
+
+        for (int i = 0; i < 8; ++i)  // i - строка в сетке 8x8
         {
-            worldTriangleIndices.push_back(static_cast<int>(vertexOffset + index));
+            for (int j = 0; j < 8; ++j)  // j - колонка в сетке 8x8
+            {
+                // Определяем, какому биту из сетки 4x4 соответствует наш квадрат 8x8
+                const int hole_y = i / 2;
+                const int hole_x = j / 2;
+                const int bit_index = hole_y * 4 + hole_x;
+                const bool is_hole = (holes_mask >> bit_index) & 1;
+
+                // Если это не дыра, то добавляем 4 треугольника, составляющих квадрат.
+                if (!is_hole)
+                {
+                    const int outer_grid_stride = 17;
+
+                    const int idx_A = (i * outer_grid_stride) + j;
+                    const int idx_B = idx_A + 1;
+                    const int idx_X = (i * outer_grid_stride) + 9 + j;  // Центральная вершина
+                    const int idx_C = idx_A + outer_grid_stride;
+                    const int idx_D = idx_B + outer_grid_stride;
+
+                    // Треугольник 1 (левый верхний)
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_X));
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_A));
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_C));
+
+                    // Треугольник 2 (правый верхний)
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_X));
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_B));
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_A));
+
+                    // Треугольник 3 (правый нижний)
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_X));
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_D));
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_B));
+
+                    // Треугольник 4 (левый нижний)
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_X));
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_C));
+                    worldTriangleIndices.push_back(static_cast<int>(vertexOffset + idx_D));
+                }
+            }
         }
     }
 }
 
+// ВНИМАНИЕ: Эта функция и связанный с ней член m_terrainTileIndices больше не используются.
+// Их можно будет безопасно удалить после проверки корректной работы новой логики.
 void TerrainProcessor::buildTerrainTileIndices()
 {
     m_terrainTileIndices.clear();

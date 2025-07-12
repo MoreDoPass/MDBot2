@@ -681,6 +681,17 @@ bool Parser::parseMCNKs(std::istream& stream, ADTData& adtData, std::vector<std:
             continue;
         }
 
+        // --- ДОБАВЛЕНО: Логирование маски дыр ---
+        // После чтения заголовка, проверяем значение holes_low_res.
+        // Если оно не равно нулю, значит, в этом чанке есть дыры, и мы выводим маску в лог.
+        if (currentMcnk.header.holes_low_res != 0)
+        {
+            std::stringstream ss;
+            ss << "0x" << std::hex << currentMcnk.header.holes_low_res;
+            log("        MCNK [" + std::to_string(i) + "]: Found low-resolution holes mask: " + ss.str(), logMessages);
+        }
+        // --- КОНЕЦ ДОБАВЛЕННОГО КОДА ---
+
         // Проверка, что прочитанные indexX и indexY совпадают с вычисленными
         if (currentMcnk.header.indexX != currentMcnk.indexX || currentMcnk.header.indexY != currentMcnk.indexY)
         {
