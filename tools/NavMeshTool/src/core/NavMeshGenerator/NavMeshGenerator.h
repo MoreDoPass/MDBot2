@@ -13,6 +13,7 @@
 #include "Processors/TerrainProcessor.h"  // Включаем новый обработчик
 #include "Processors/WMOProcessor.h"      // Включаем новый обработчик WMO
 #include "Processors/M2Processor.h"       // Включаем M2 обработчик
+#include "Builders/RecastBuilder.h"
 
 // Прямое объявление (Forward declaration) MpqManager, чтобы не подключать его заголовок сюда
 // Это уменьшает связанность и время компиляции.
@@ -72,6 +73,18 @@ class NavMeshGenerator
      * @return true, если сохранение прошло успешно, иначе false.
      */
     bool saveToObj(const std::string& filepath) const;
+
+    /**
+     * @brief Строит и сохраняет навигационную сетку (NavMesh).
+     *
+     * Этот метод использует ранее загруженную геометрию (вершины и индексы)
+     * для построения NavMesh с помощью RecastBuilder. Результат сохраняется
+     * в двоичный файл, совместимый с Detour.
+     *
+     * @param filepath Путь к файлу для сохранения NavMesh (например, "map.mmap").
+     * @return true, если построение и сохранение прошли успешно, иначе false.
+     */
+    bool buildAndSaveNavMesh(const std::string& filepath) const;
 
    private:
     MpqManager& m_mpqManager;                         // Ссылка на MPQ менеджер

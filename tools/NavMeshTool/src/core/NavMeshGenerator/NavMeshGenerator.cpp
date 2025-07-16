@@ -303,4 +303,73 @@ bool NavMeshGenerator::saveToObj(const std::string& filepath) const
     return true;
 }
 
+bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& filepath) const
+{
+    // 1. Проверяем, есть ли у нас геометрия для обработки.
+    if (m_worldVertices.empty() || m_worldTriangleIndices.empty())
+    {
+        qCritical(logNavMeshGenerator) << "Геометрия не загружена. Невозможно построить NavMesh.";
+        return false;
+    }
+
+    // 2. Настраиваем конфигурацию Recast.
+    // Это базовые параметры. В будущем их можно будет вынести в GUI
+    // или загружать из файла конфигурации.
+    rcConfig config;
+    memset(&config, 0, sizeof(config));
+    config.cs = 0.3f;
+    config.ch = 0.2f;
+    config.walkableSlopeAngle = 45.0f;
+    config.walkableHeight = (int)ceilf(2.0f / config.ch);
+    config.walkableClimb = (int)floorf(0.9f / config.ch);
+    config.walkableRadius = (int)ceilf(0.5f / config.cs);
+    config.maxEdgeLen = (int)(12.0f / config.cs);
+    config.maxSimplificationError = 1.3f;
+    config.minRegionArea = (int)rcSqr(8);
+    config.mergeRegionArea = (int)rcSqr(20);
+    config.maxVertsPerPoly = 6;
+    config.detailSampleDist = 6.0f;
+    config.detailSampleMaxError = 1.0f;
+
+    // 3. Создаем строителя, ПЕРЕДАВАЯ ему конфигурацию.
+    // (ИСПРАВЛЕНИЕ 1)
+    NavMesh::RecastBuilder builder(config);
+
+    // 4. Вызываем построение NavMesh, БЕЗ передачи config.
+    // (ИСПРАВЛЕНИЕ 2)
+    qInfo(logNavMeshGenerator) << "Начинается генерация NavMesh...";
+
+    // Передаем константные ссылки на наши векторы геометрии
+    auto navMeshData = builder.build(m_worldVertices, m_worldTriangleIndices);
+
+    if (!navMeshData)
+    {
+        qCritical(logNavMeshGenerator) << "Ошибка генерации NavMesh.";
+        return false;
+    }
+
+    qInfo(logNavMeshGenerator) << "NavMesh успешно сгенерирован. Размер:" << navMeshData->size() << "байт.";
+
+    // 5. Сохраняем результат в файл
+    try
+    {
+        std::ofstream outFile(filepath, std::ios::binary);
+        if (!outFile)
+        {
+            qCritical(logNavMeshGenerator) << "Не удалось открыть файл для записи:" << filepath.c_str();
+            return false;
+        }
+
+        outFile.write(reinterpret_cast<const char*>(navMeshData->data()), navMeshData->size());
+        qInfo(logNavMeshGenerator) << "NavMesh сохранен в" << filepath.c_str();
+    }
+    catch (const std::exception& e)
+    {
+        qCritical(logNavMeshGenerator) << "Ошибка при записи в файл:" << e.what();
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace NavMesh

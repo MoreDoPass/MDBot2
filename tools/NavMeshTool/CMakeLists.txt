@@ -22,6 +22,7 @@ find_package(BZip2 REQUIRED)
 # Находим пакет Google Test (должен быть найден для сборки тестов)
 # Перемещаем это выше, чтобы было доступно для объединенной цели тестов
 find_package(GTest CONFIG REQUIRED)
+find_package(recastnavigation CONFIG REQUIRED)
 
 # --- Настройка для вручную собранной StormLib ---
 # Путь к директории с StormLib.h и другими заголовочными файлами StormLib
@@ -52,6 +53,7 @@ set(NAV_MESH_TOOL_APP_SOURCES
     src/core/NavMeshGenerator/Processors/TerrainProcessor.cpp # <--- Добавили новый файл
     src/core/NavMeshGenerator/Processors/WmoProcessor.cpp # <--- И еще один
     src/core/NavMeshGenerator/Processors/M2Processor.cpp # <-- Добавили новый файл
+    src/core/NavMeshGenerator/Builders/RecastBuilder.cpp
 )
 
 # Создаем исполняемый файл приложения
@@ -63,8 +65,7 @@ target_include_directories(NavMeshTool_app PRIVATE
     ${Qt6_Core_INCLUDE_DIRS} # Добавляем пути к заголовкам Qt Core
     ${Qt6_Widgets_INCLUDE_DIRS} # <--- Добавили пути для Qt Widgets
     ${STORM_LIB_INCLUDE_DIR} # <--- Путь к заголовкам StormLib
-    # Если у вас будут заголовочные файлы в других местах, добавьте их сюда
-    # например, ${PROJECT_SOURCE_DIR}/include
+    # Пути для Recast/Detour будут добавлены автоматически через target_link_libraries
 )
 
 # Устанавливаем определения для Unicode
@@ -77,6 +78,8 @@ target_link_libraries(NavMeshTool_app PRIVATE
     "${STORM_LIB_LIBRARY_FILE}" # <--- Явно линкуем наш StormLib.lib
     ZLIB::ZLIB
     BZip2::BZip2
+    RecastNavigation::Recast
+    RecastNavigation::Detour
 )
 
 if(WIN32)
@@ -149,7 +152,7 @@ if(GTest_FOUND)
         src  # Для доступа к заголовкам типа "core/MpqManager/MpqManager.h"
         tests # Если есть какие-то общие заголовки для тестов в папке tests
         ${STORM_LIB_INCLUDE_DIR} # Заголовки StormLib
-        # Qt и GTest заголовки должны быть доступны через find_package
+        # Пути для Recast/Detour будут добавлены автоматически через target_link_libraries
     )
 
     target_compile_definitions(NavMeshToolTests PRIVATE UNICODE _UNICODE)
@@ -163,6 +166,8 @@ if(GTest_FOUND)
         "${STORM_LIB_LIBRARY_FILE}" # Явно линкуем наш StormLib.lib
         ZLIB::ZLIB
         BZip2::BZip2
+        RecastNavigation::Recast
+        RecastNavigation::Detour
     )
 
     # Копирование тестовых данных WDT для NavMeshToolTests
