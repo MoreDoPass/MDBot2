@@ -51,40 +51,29 @@ class NavMeshGenerator
     bool loadMapData(const std::string& mapName, const std::vector<std::pair<int, int>>& adtCoords = {});
 
     /**
-     * @brief Возвращает ссылку на массив собранных вершин.
-     * Вершины хранятся как последовательность float (x1, y1, z1, x2, y2, z2, ...).
-     * @return Константная ссылка на вектор вершин.
-     */
-    const std::vector<float>& getVertices() const;
-
-    /**
-     * @brief Возвращает ссылку на массив индексов треугольников.
-     * Каждый треугольник представлен тремя индексами (i1, i2, i3, i4, i5, i6, ...).
-     * Индексы указывают на начало группы из трех float в массиве, возвращаемом getVertices().
-     * т.е. m_worldVertices[i1*3], m_worldVertices[i1*3+1], m_worldVertices[i1*3+2] это первая вершина
-     * ПРАВИЛЬНЕЕ: Индексы указывают на порядковый номер вершины, а не на смещение в float массиве.
-     * @return Константная ссылка на вектор индексов.
-     */
-    const std::vector<int>& getTriangleIndices() const;
-
-    /**
      * @brief Сохраняет собранную геометрию в файл формата .obj.
      * @param filepath Путь к файлу для сохранения.
+     * @param vertices Вектор вершин для сохранения.
+     * @param indices Вектор индексов для сохранения.
      * @return true, если сохранение прошло успешно, иначе false.
      */
-    bool saveToObj(const std::string& filepath) const;
+    bool saveToObj(const std::string& filepath, const std::vector<float>& vertices,
+                   const std::vector<int>& indices) const;
 
     /**
      * @brief Строит и сохраняет навигационную сетку (NavMesh).
      *
-     * Этот метод использует ранее загруженную геометрию (вершины и индексы)
+     * Этот метод использует переданную геометрию (вершины и индексы)
      * для построения NavMesh с помощью RecastBuilder. Результат сохраняется
      * в двоичный файл, совместимый с Detour.
      *
      * @param filepath Путь к файлу для сохранения NavMesh (например, "map.mmap").
+     * @param vertices Вектор вершин для построения сетки.
+     * @param indices Вектор индексов для построения сетки.
      * @return true, если построение и сохранение прошли успешно, иначе false.
      */
-    bool buildAndSaveNavMesh(const std::string& filepath) const;
+    bool buildAndSaveNavMesh(const std::string& filepath, const std::vector<float>& vertices,
+                             const std::vector<int>& indices) const;
 
    private:
     MpqManager& m_mpqManager;                         // Ссылка на MPQ менеджер
@@ -99,12 +88,8 @@ class NavMeshGenerator
 
     NavMeshTool::WDT::WDTData m_currentWdtData;  // Данные, извлеченные из текущего WDT файла
 
-    // Собранная геометрия мира
-    // Вершины хранятся как набор координат: [x1, y1, z1, x2, y2, z2, ...]
-    std::vector<float> m_worldVertices;
-    // Индексы треугольников: каждый int - это индекс вершины в m_worldVertices.
-    // [idx_v1_t1, idx_v2_t1, idx_v3_t1, idx_v1_t2, idx_v2_t2, idx_v3_t2, ...]
-    std::vector<int> m_worldTriangleIndices;
+    // Собранная геометрия мира больше не хранится на уровне класса.
+    // Она будет создаваться, обрабатываться и уничтожаться для каждого ADT отдельно.
 
     // Контейнеры для отслеживания уникальных ID обработанных объектов
     std::unordered_set<uint32_t> m_processedWmoIds;
@@ -116,7 +101,7 @@ class NavMeshGenerator
      */
     void parseMapDbc(const std::vector<unsigned char>& buffer);
 
-    void processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
+    void processAdtChunk(const std::string& mapName, const NavMeshTool::ADT::ADTData& adtData, int row, int col);
 
     // Здесь будут приватные методы для парсинга WDT, ADT, WMO, M2,
     // трансформации координат и т.д.

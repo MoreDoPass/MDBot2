@@ -52,8 +52,7 @@ bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector
     qCInfo(logNavMeshGenerator) << "Loading map data for map:" << QString::fromStdString(mapName);
 
     // Очищаем данные от предыдущих запусков (если есть)
-    m_worldVertices.clear();
-    m_worldTriangleIndices.clear();
+    // m_worldVertices и m_worldTriangleIndices удалены
     m_processedWmoIds.clear();
     m_processedM2Ids.clear();  // Очищаем set для M2
 
@@ -100,162 +99,17 @@ bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector
         }
 
         // Передаем данные в обработчик
-        processAdtChunk(*adtDataOpt, adtEntry.y, adtEntry.x);
+        processAdtChunk(mapName, *adtDataOpt, adtEntry.y, adtEntry.x);
     }
-
-    /*
-    // 6. Обработка глобального WMO (если есть)
-    if (!m_currentWdtData.modfEntries.empty() && !m_currentWdtData.mwmoFilenames.empty())
-    {
-        qCInfo(logNavMeshGenerator) << "Processing global WMO...";
-
-        // Предполагаем, что для карты может быть только один глобальный WMO.
-        const auto& globalWmoDef = m_currentWdtData.modfEntries[0];
-
-        // ВАЖНО: globalWmoDef.nameId - это смещение в байтах в блоке MWMO, а не индекс.
-        // WDT парсер (пока) не преобразует его в индекс.
-        // Поскольку у нас есть только список имен, и мы не храним сырой блок MWMO,
-        // мы делаем рискованное предположение, что nameId 0 соответствует первому файлу.
-        // Это сработает, только если в WDT есть ровно один MODF и один MWMO файл.
-        // TODO: Улучшить WDT парсер, чтобы он правильно разрешал nameId в индекс.
-        if (globalWmoDef.nameId != 0)
-        {
-            qWarning(logNavMeshGenerator)
-                << "Global WMO nameId is not 0, which is unhandled. Assuming index 0. This may be incorrect.";
-        }
-
-        // Мы вынуждены предполагать, что нужный нам файл находится под индексом 0.
-        const std::string& wmoPath = m_currentWdtData.mwmoFilenames[0];
-
-        std::vector<unsigned char> wmoBuffer;
-        if (!m_mpqManager.readFile(wmoPath, wmoBuffer))
-        {
-            qWarning(logNavMeshGenerator) << "Could not read global WMO file:" << QString::fromStdString(wmoPath);
-        }
-        else
-        {
-            auto fileProvider = [this,
-                                 &wmoPath](const std::string& filePath) -> std::optional<std::vector<unsigned char>>
-            {
-                std::string fullPath = filePath;
-                if (filePath.find('\\') == std::string::npos && filePath.find('/') == std::string::npos)
-                {
-                    std::string wmoDir;
-                    const auto last_slash = wmoPath.find_last_of("/\\");
-                    if (std::string::npos != last_slash)
-                    {
-                        wmoDir = wmoPath.substr(0, last_slash + 1);
-                    }
-                    fullPath = wmoDir + filePath;
-                }
-
-                std::string pathForMpq = fullPath;
-                const auto extPos = pathForMpq.rfind('.');
-                if (extPos != std::string::npos)
-                {
-                    if (_stricmp(pathForMpq.c_str() + extPos, ".MDX") == 0 ||
-                        _stricmp(pathForMpq.c_str() + extPos, ".MDL") == 0)
-                    {
-                        pathForMpq.replace(extPos, 4, ".M2");
-                    }
-                }
-
-                std::vector<unsigned char> buffer;
-                if (m_mpqManager.readFile(pathForMpq, buffer))
-                {
-                    return buffer;
-                }
-                if (pathForMpq != fullPath)
-                {
-                    if (m_mpqManager.readFile(fullPath, buffer))
-                    {
-                        return buffer;
-                    }
-                }
-                return std::nullopt;
-            };
-
-            auto wmoDataOpt = m_wmoParser.parse(wmoPath, wmoBuffer, fileProvider);
-            if (!wmoDataOpt)
-            {
-                qWarning(logNavMeshGenerator) << "Could not parse global WMO file:" << QString::fromStdString(wmoPath);
-            }
-            else
-            {
-                const auto& wmoData = *wmoDataOpt;
-                const size_t vertexOffset = m_worldVertices.size() / 3;
-
-                const float posX = MAP_CHUNK_SIZE - globalWmoDef.position[1];  // Y
-                const float posY = MAP_CHUNK_SIZE - globalWmoDef.position[0];  // X
-                const float posZ = globalWmoDef.position[2];                   // Z
-
-                // WDT orientation: {rot_x, rot_y, rot_z}
-                // ADT rotation: {rot_y, rot_z, rot_x}
-                // Мы должны использовать ту же трансформацию, что и для ADT WMOs.
-                // ADT rotY -> WDT oriY, ADT rotZ -> WDT oriZ, ADT rotX -> WDT oriX
-                const float rotX_rad = globalWmoDef.orientation[1] * (PI / 180.0f);
-                const float rotY_rad = globalWmoDef.orientation[2] * (PI / 180.0f);
-                const float rotZ_rad = globalWmoDef.orientation[0] * (PI / 180.0f);
-
-                for (const auto& wmoVert : wmoData.vertices)
-                {
-                    Vec3 vert = {-wmoVert.y, -wmoVert.x, wmoVert.z};
-
-                    float newX = vert.x * cos(rotZ_rad) - vert.y * sin(rotZ_rad);
-                    float newY = vert.x * sin(rotZ_rad) + vert.y * cos(rotZ_rad);
-                    vert.x = newX;
-                    vert.y = newY;
-
-                    newX = vert.x * cos(rotY_rad) + vert.z * sin(rotY_rad);
-                    float newZ = -vert.x * sin(rotY_rad) + vert.z * cos(rotY_rad);
-                    vert.x = newX;
-                    vert.z = newZ;
-
-                    newY = vert.y * cos(rotX_rad) - vert.z * sin(rotX_rad);
-                    newZ = vert.y * sin(rotX_rad) + vert.z * cos(rotX_rad);
-                    vert.y = newY;
-                    vert.z = newZ;
-
-                    m_worldVertices.push_back(vert.x + posX);
-                    m_worldVertices.push_back(vert.y + posY);
-                    m_worldVertices.push_back(vert.z + posZ);
-                }
-
-                for (int index : wmoData.indices)
-                {
-                    m_worldTriangleIndices.push_back(static_cast<int>(vertexOffset + index));
-                }
-
-                qCInfo(logNavMeshGenerator) << "Successfully processed global WMO:" << QString::fromStdString(wmoPath);
-            }
-        }
-    }
-    */
 
     qInfo(logNavMeshGenerator) << "Finished processing all ADTs for map" << QString::fromStdString(mapName);
 
-    // Временный экспорт в .obj для отладки
-    if (saveToObj(mapName + ".obj"))
-    {
-        qInfo(logNavMeshGenerator) << "Successfully saved geometry to" << QString::fromStdString(mapName + ".obj");
-    }
-    else
-    {
-        qWarning(logNavMeshGenerator) << "Failed to save geometry to" << QString::fromStdString(mapName + ".obj");
-    }
+    // Глобальный вызов saveToObj и buildAndSaveNavMesh убран отсюда
 
     return true;
 }
 
-const std::vector<float>& NavMeshGenerator::getVertices() const
-{
-    return m_worldVertices;
-}
-
-const std::vector<int>& NavMeshGenerator::getTriangleIndices() const
-{
-    return m_worldTriangleIndices;
-}
+// Методы getVertices и getTriangleIndices полностью удалены
 
 // Приватный метод для парсинга Map.dbc
 void NavMeshGenerator::parseMapDbc(const std::vector<unsigned char>& buffer)
@@ -264,16 +118,67 @@ void NavMeshGenerator::parseMapDbc(const std::vector<unsigned char>& buffer)
     // TODO: Implement Map.dbc parsing if needed for map names by ID
 }
 
-void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col)
+void NavMeshGenerator::processAdtChunk(const std::string& mapName, const NavMeshTool::ADT::ADTData& adtData, int row,
+                                       int col)
 {
-    // Этот метод теперь является "оркестратором" для обработки одного ADT.
-    // Он последовательно вызывает обработчики для каждого типа геометрии.
-    m_terrainProcessor.process(adtData, row, col, m_worldVertices, m_worldTriangleIndices);
-    m_wmoProcessor.process(adtData, m_processedWmoIds, m_worldVertices, m_worldTriangleIndices);
-    m_m2Processor.process(adtData, m_processedM2Ids, m_worldVertices, m_worldTriangleIndices);
+    // Этот метод теперь является "фабрикой" для одного ADT-тайла.
+
+    // 1. Создаем локальные контейнеры для геометрии этого чанка
+    std::vector<float> adtVertices;
+    std::vector<int> adtIndices;
+
+    // 2. Последовательно вызываем обработчики, которые наполняют локальные контейнеры
+    m_terrainProcessor.process(adtData, row, col, adtVertices, adtIndices);
+    m_wmoProcessor.process(adtData, m_processedWmoIds, adtVertices, adtIndices);
+    m_m2Processor.process(adtData, m_processedM2Ids, adtVertices, adtIndices);
+
+    // 3. Преобразование системы координат для Recast (Y-вперед -> Y-вверх)
+    // После того как вся геометрия для тайла собрана, мы должны поменять ее
+    // систему координат, чтобы она соответствовала тому, что ожидает Recast.
+    // Recast использует систему, где Y - это "верх". В наших данных Z - это "верх".
+    // Преобразование: (x, y, z) -> (x, z, -y)
+    for (size_t i = 0; i < adtVertices.size(); i += 3)
+    {
+        // adtVertices[i] (координата X) остается без изменений.
+        const float y = adtVertices[i + 1];
+        const float z = adtVertices[i + 2];
+        adtVertices[i + 1] = z;   // Новая координата Y - это старая Z.
+        adtVertices[i + 2] = -y;  // Новая координата Z - это инвертированная старая Y.
+    }
+
+    // Если после обработки геометрия пуста, нет смысла продолжать
+    if (adtVertices.empty() || adtIndices.empty())
+    {
+        qCDebug(logNavMeshGenerator) << "ADT at" << row << col << "has no geometry, skipping.";
+        return;
+    }
+
+    // 4. (Опционально) Сохраняем геометрию этого ADT в .obj для отладки
+    std::string objFilename = mapName + "_" + std::to_string(col) + "_" + std::to_string(row) + ".obj";
+    if (saveToObj(objFilename, adtVertices, adtIndices))
+    {
+        qCInfo(logNavMeshGenerator) << "Successfully saved ADT geometry to" << QString::fromStdString(objFilename);
+    }
+    else
+    {
+        qCWarning(logNavMeshGenerator) << "Failed to save ADT geometry to" << QString::fromStdString(objFilename);
+    }
+
+    // 5. Строим и сохраняем NavMesh для этого ADT
+    std::string navmeshFilename = mapName + "_" + std::to_string(col) + "_" + std::to_string(row) + ".navmesh";
+    if (buildAndSaveNavMesh(navmeshFilename, adtVertices, adtIndices))
+    {
+        qCInfo(logNavMeshGenerator) << "Successfully built and saved NavMesh to"
+                                    << QString::fromStdString(navmeshFilename);
+    }
+    else
+    {
+        qCWarning(logNavMeshGenerator) << "Failed to build NavMesh for" << QString::fromStdString(navmeshFilename);
+    }
 }
 
-bool NavMeshGenerator::saveToObj(const std::string& filepath) const
+bool NavMeshGenerator::saveToObj(const std::string& filepath, const std::vector<float>& vertices,
+                                 const std::vector<int>& indices) const
 {
     std::ofstream objFile(filepath);
     if (!objFile.is_open())
@@ -286,27 +191,27 @@ bool NavMeshGenerator::saveToObj(const std::string& filepath) const
     objFile << std::fixed << std::setprecision(6);
 
     // Записываем все вершины
-    for (size_t i = 0; i < m_worldVertices.size(); i += 3)
+    for (size_t i = 0; i < vertices.size(); i += 3)
     {
-        objFile << "v " << m_worldVertices[i] << " " << m_worldVertices[i + 1] << " " << m_worldVertices[i + 2] << "\n";
+        objFile << "v " << vertices[i] << " " << vertices[i + 1] << " " << vertices[i + 2] << "\n";
     }
 
     // Записываем все грани (треугольники)
     // В .obj индексация начинается с 1
-    for (size_t i = 0; i < m_worldTriangleIndices.size(); i += 3)
+    for (size_t i = 0; i < indices.size(); i += 3)
     {
-        objFile << "f " << (m_worldTriangleIndices[i] + 1) << " " << (m_worldTriangleIndices[i + 1] + 1) << " "
-                << (m_worldTriangleIndices[i + 2] + 1) << "\n";
+        objFile << "f " << (indices[i] + 1) << " " << (indices[i + 1] + 1) << " " << (indices[i + 2] + 1) << "\n";
     }
 
     objFile.close();
     return true;
 }
 
-bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& filepath) const
+bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& filepath, const std::vector<float>& vertices,
+                                                    const std::vector<int>& indices) const
 {
     // 1. Проверяем, есть ли у нас геометрия для обработки.
-    if (m_worldVertices.empty() || m_worldTriangleIndices.empty())
+    if (vertices.empty() || indices.empty())
     {
         qCritical(logNavMeshGenerator) << "Геометрия не загружена. Невозможно построить NavMesh.";
         return false;
@@ -317,34 +222,39 @@ bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& filepath)
     // или загружать из файла конфигурации.
     rcConfig config;
     memset(&config, 0, sizeof(config));
-    config.cs = 0.3f;
-    config.ch = 0.2f;
+
+    // РАДИКАЛЬНОЕ ИЗМЕНЕНИЕ: Увеличиваем размер вокселя для борьбы с экстремально "шумными" тайлами.
+    // Это основной способ "загрубить" геометрию на самом раннем этапе.
+    config.cs = 1.0f;  // Было 0.3
+    config.ch = 1.0f;  // Было 0.2
+
     config.walkableSlopeAngle = 45.0f;
     config.walkableHeight = (int)ceilf(2.0f / config.ch);
     config.walkableClimb = (int)floorf(0.9f / config.ch);
     config.walkableRadius = (int)ceilf(0.5f / config.cs);
     config.maxEdgeLen = (int)(12.0f / config.cs);
     config.maxSimplificationError = 1.3f;
-    config.minRegionArea = (int)rcSqr(8);
-    config.mergeRegionArea = (int)rcSqr(20);
+
+    // Оставляем увеличенные значения из прошлой попытки.
+    config.minRegionArea = (int)rcSqr(20);
+    config.mergeRegionArea = (int)rcSqr(40);
+
     config.maxVertsPerPoly = 6;
     config.detailSampleDist = 6.0f;
     config.detailSampleMaxError = 1.0f;
 
     // 3. Создаем строителя, ПЕРЕДАВАЯ ему конфигурацию.
-    // (ИСПРАВЛЕНИЕ 1)
     NavMesh::RecastBuilder builder(config);
 
-    // 4. Вызываем построение NavMesh, БЕЗ передачи config.
-    // (ИСПРАВЛЕНИЕ 2)
-    qInfo(logNavMeshGenerator) << "Начинается генерация NavMesh...";
+    // 4. Вызываем построение NavMesh
+    qInfo(logNavMeshGenerator) << "Начинается генерация NavMesh для" << filepath.c_str();
 
     // Передаем константные ссылки на наши векторы геометрии
-    auto navMeshData = builder.build(m_worldVertices, m_worldTriangleIndices);
+    auto navMeshData = builder.build(vertices, indices);
 
     if (!navMeshData)
     {
-        qCritical(logNavMeshGenerator) << "Ошибка генерации NavMesh.";
+        qCritical(logNavMeshGenerator) << "Ошибка генерации NavMesh для" << filepath.c_str();
         return false;
     }
 

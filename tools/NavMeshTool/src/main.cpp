@@ -51,32 +51,8 @@ int main(int argc, char *argv[])
     std::string mapNameToLoad = "BlackTemple";
     if (navMeshGenerator.loadMapData(mapNameToLoad, {}))
     {
-        qCInfo(logNavMeshToolApp) << "Successfully initiated loading for map:" << QString::fromStdString(mapNameToLoad);
-
-        std::string objFilePath = mapNameToLoad + ".obj";
-        qCInfo(logNavMeshToolApp) << "Сохраняем геометрию в" << QString::fromStdString(objFilePath) << "...";
-        if (navMeshGenerator.saveToObj(objFilePath))
-        {
-            qCInfo(logNavMeshToolApp) << "Геометрия успешно сохранена в .obj файл.";
-        }
-        else
-        {
-            qCWarning(logNavMeshToolApp) << "Не удалось сохранить .obj файл.";
-        }
-
-        // Главное действие: строим и сохраняем NavMesh.
-        // Файл будет сохранен в папку, откуда запускается приложение (обычно папка сборки).
-        std::string navMeshFilePath = mapNameToLoad + ".mmap";
-        qCInfo(logNavMeshToolApp) << "Начинаем построение NavMesh. Результат будет в"
-                                  << QString::fromStdString(navMeshFilePath) << "...";
-        if (navMeshGenerator.buildAndSaveNavMesh(navMeshFilePath))
-        {
-            qCInfo(logNavMeshToolApp) << "NavMesh успешно построен и сохранен.";
-        }
-        else
-        {
-            qCCritical(logNavMeshToolApp) << "КРИТИЧЕСКАЯ ОШИБКА при построении NavMesh!";
-        }
+        qCInfo(logNavMeshToolApp) << "Map processing finished for:" << QString::fromStdString(mapNameToLoad)
+                                  << ". Check output directory for .obj and .navmesh files for each ADT.";
     }
     else
     {
