@@ -49,6 +49,7 @@ set(NAV_MESH_TOOL_APP_SOURCES
     src/core/WoWFiles/Parsers/ADT/ADTParser.cpp
     src/core/WoWFiles/Parsers/M2/M2Parser.cpp
     src/core/WoWFiles/Parsers/WMO/WMOParser.cpp
+    src/core/WoWFiles/Parsers/DBC/DBCParser.cpp # <--- ВОТ ЭТА СТРОКА
     src/core/NavMeshGenerator/NavMeshGenerator.cpp
     src/core/NavMeshGenerator/Processors/TerrainProcessor.cpp # <--- Добавили новый файл
     src/core/NavMeshGenerator/Processors/WmoProcessor.cpp # <--- И еще один
@@ -120,6 +121,7 @@ set(NAVTOOL_CORE_TESTED_SOURCES
     src/core/WoWFiles/Parsers/ADT/ADTParser.cpp
     src/core/WoWFiles/Parsers/M2/M2Parser.cpp
     src/core/WoWFiles/Parsers/WMO/WMOParser.cpp
+    src/core/WoWFiles/Parsers/DBC/DBCParser.cpp # <--- И ВОТ ЭТА СТРОКА
     src/core/NavMeshGenerator/NavMeshGenerator.cpp # <--- Добавляем этот файл
     src/core/NavMeshGenerator/Processors/TerrainProcessor.cpp # <--- И сюда тоже
     src/core/NavMeshGenerator/Processors/WmoProcessor.cpp # <--- И сюда

@@ -43,6 +43,7 @@ add_executable(MDBot2
     src/core/Bot/Movement/MovementManager.cpp
     src/core/Bot/Movement/CtM/CtM.cpp
     src/core/Bot/Movement/CtM/CtMEnablerHook.cpp
+    src/core/Bot/Movement/Pathfinder/Pathfinder.cpp
 )
 
 target_link_libraries(MDBot2 PRIVATE 
@@ -51,6 +52,8 @@ target_link_libraries(MDBot2 PRIVATE
     RecastNavigation::Detour
     Core_MemoryManager
     Core_ProcessManager
+    Core_HookManager
+    Core_Navigation
 )
 
 target_include_directories(MDBot2 PRIVATE

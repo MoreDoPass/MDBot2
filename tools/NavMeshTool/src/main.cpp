@@ -1,15 +1,15 @@
 #include "gui/MainWindow.h"  // Путь к нашему MainWindow
 #include <QApplication>
 #include <QLoggingCategory>
-
+#include <optional>
 // Подключаем MpqManager и NavMeshGenerator
 #include "core/MpqManager/MpqManager.h"
 #include "core/NavMeshGenerator/NavMeshGenerator.h"  // Убедимся, что NavMeshGenerator.h тоже подключен
-
+#include "core/WoWFiles/Parsers/DBC/DBCParser.h"     // Подключаем наш новый парсер
 // Глобальная категория для main или общих логов приложения
 Q_LOGGING_CATEGORY(logNavMeshToolApp, "navmesh.app")
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
 
@@ -48,15 +48,72 @@ int main(int argc, char *argv[])
 
     // Пытаемся загрузить данные для конкретной карты
     // Пока что adtCoords не используются, передаем пустой вектор
-    std::string mapNameToLoad = "BlackTemple";
-    if (navMeshGenerator.loadMapData(mapNameToLoad, {}))
+    // --- Интеграция DBCParser для поиска и загрузки карты ---
+    qCInfo(logNavMeshToolApp) << "Attempting to find and process 'Black Temple' using DBCParser...";
+
+    // 1. Читаем файл Map.dbc из MPQ-архивов.
+    std::vector<char> mapDbcData;  // Сначала объявляем вектор
+    // Передаем его по ссылке в readFile. readFile вернет true или false.
+    if (!mpqManager.readFile("DBFilesClient\\Map.dbc", reinterpret_cast<std::vector<unsigned char>&>(mapDbcData)))
     {
-        qCInfo(logNavMeshToolApp) << "Map processing finished for:" << QString::fromStdString(mapNameToLoad)
-                                  << ". Check output directory for .obj and .navmesh files for each ADT.";
+        qCCritical(logNavMeshToolApp) << "Failed to read Map.dbc. Cannot automatically find and process the map.";
     }
     else
     {
-        qCWarning(logNavMeshToolApp) << "Failed to load map data for:" << QString::fromStdString(mapNameToLoad);
+        qCInfo(logNavMeshToolApp) << "Successfully read" << mapDbcData.size() << "bytes from Map.dbc.";
+
+        // 2. Создаем парсер и передаем ему данные.
+        const DBCParser dbcParser;
+        const std::vector<MapRecord> allMaps = dbcParser.parse(mapDbcData);
+
+        if (allMaps.empty())
+        {
+            qCCritical(logNavMeshToolApp) << "DBCParser failed to parse map data. Cannot proceed.";
+        }
+        else
+        {
+            qCInfo(logNavMeshToolApp) << "Successfully parsed" << allMaps.size() << "maps.";
+
+            // 3. Ищем в списке нужную нам карту.
+            const std::string desiredMapName = "Black Temple";
+            std::optional<MapRecord> foundMap;
+
+            for (const auto& mapRecord : allMaps)
+            {
+                // В версии 3.3.5 имя карты "Black Temple", а не "The Black Temple".
+                if (mapRecord.displayName == desiredMapName)
+                {
+                    foundMap = mapRecord;
+                    break;  // Нашли, выходим из цикла.
+                }
+            }
+
+            // 4. Если карта найдена, используем ее для генерации NavMesh.
+            if (foundMap.has_value())
+            {
+                qCInfo(logNavMeshToolApp)
+                    << "Found target map!"
+                    << "ID:" << foundMap->id << "| Internal Name:" << QString::fromStdString(foundMap->internalName)
+                    << "| Display Name:" << QString::fromStdString(foundMap->displayName);
+
+                if (navMeshGenerator.loadMapData(foundMap->internalName, foundMap->id, {}))
+                {
+                    qCInfo(logNavMeshToolApp)
+                        << "Map processing finished for:" << QString::fromStdString(foundMap->displayName)
+                        << ". Check output directory.";
+                }
+                else
+                {
+                    qCWarning(logNavMeshToolApp)
+                        << "Failed to load map data for:" << QString::fromStdString(foundMap->displayName);
+                }
+            }
+            else
+            {
+                qCWarning(logNavMeshToolApp)
+                    << "Map '" << QString::fromStdString(desiredMapName) << "' not found in Map.dbc.";
+            }
+        }
     }
 
     MainWindow mainWindow;

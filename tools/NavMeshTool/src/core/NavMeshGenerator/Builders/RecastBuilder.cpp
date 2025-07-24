@@ -43,13 +43,7 @@ struct RecastContourSetDeleter
     }
 };
 
-struct RecastPolyMeshDeleter
-{
-    void operator()(rcPolyMesh* pmesh) const
-    {
-        rcFreePolyMesh(pmesh);
-    }
-};
+// RecastPolyMeshDeleter и RecastPolyMeshPtr теперь в .h файле
 
 struct RecastPolyMeshDetailDeleter
 {
@@ -63,8 +57,14 @@ struct RecastPolyMeshDetailDeleter
 using RecastHeightfieldPtr = std::unique_ptr<rcHeightfield, RecastHeightfieldDeleter>;
 using RecastCompactHeightfieldPtr = std::unique_ptr<rcCompactHeightfield, RecastCompactHeightfieldDeleter>;
 using RecastContourSetPtr = std::unique_ptr<rcContourSet, RecastContourSetDeleter>;
-using RecastPolyMeshPtr = std::unique_ptr<rcPolyMesh, RecastPolyMeshDeleter>;
+// RecastPolyMeshPtr теперь в .h файле
 using RecastPolyMeshDetailPtr = std::unique_ptr<rcPolyMeshDetail, RecastPolyMeshDetailDeleter>;
+
+// Реализация Deleter'а из .h файла
+void RecastPolyMeshDeleter::operator()(rcPolyMesh* pmesh) const
+{
+    rcFreePolyMesh(pmesh);
+}
 
 // --- Реализация класса ---
 
@@ -73,8 +73,7 @@ RecastBuilder::RecastBuilder(const rcConfig& config) : m_config(config)
     qCDebug(logRecastBuilder) << "RecastBuilder initialized.";
 }
 
-std::optional<std::vector<unsigned char>> RecastBuilder::build(const std::vector<float>& vertices,
-                                                               const std::vector<int>& indices)
+std::optional<BuildResult> RecastBuilder::build(const std::vector<float>& vertices, const std::vector<int>& indices)
 {
     // Оборачиваем весь процесс в try-catch, чтобы перехватить
     // любые стандартные C++ исключения, если они возникнут.
@@ -275,8 +274,14 @@ std::optional<std::vector<unsigned char>> RecastBuilder::build(const std::vector
 
         qCInfo(logRecastBuilder) << "NavMesh successfully built! Size:" << navDataSize << "bytes.";
 
-        std::vector<unsigned char> result(navData, navData + navDataSize);
+        BuildResult result;
+        result.navmeshData.assign(navData, navData + navDataSize);
         dtFree(navData);
+
+        // Перемещаем владение pmesh в нашу структуру.
+        // Все остальные умные указатели (hf, chf, cset, dmesh) уничтожатся
+        // автоматически при выходе из функции благодаря RAII.
+        result.polyMesh = std::move(pmesh);
 
         return result;
     }

@@ -48,7 +48,7 @@ class NavMeshGenerator
      *                  Если пуст, могут обрабатываться все ADT карты (позже).
      * @return true, если данные успешно загружены и обработаны, иначе false.
      */
-    bool loadMapData(const std::string& mapName, const std::vector<std::pair<int, int>>& adtCoords = {});
+    bool loadMapData(const std::string& mapName, uint32_t mapId, const std::vector<std::pair<int, int>>& adtCoords);
 
     /**
      * @brief Сохраняет собранную геометрию в файл формата .obj.
@@ -72,8 +72,9 @@ class NavMeshGenerator
      * @param indices Вектор индексов для построения сетки.
      * @return true, если построение и сохранение прошли успешно, иначе false.
      */
-    bool buildAndSaveNavMesh(const std::string& filepath, const std::vector<float>& vertices,
-                             const std::vector<int>& indices) const;
+    bool buildAndSaveNavMesh(const std::string& navMeshFilePath, const std::string& navMeshObjFilePath,
+                             const std::vector<float>& vertices, const std::vector<int>& indices);
+    bool saveNavMeshToObj(const std::string& filepath, const rcPolyMesh* polyMesh) const;
 
    private:
     MpqManager& m_mpqManager;                         // Ссылка на MPQ менеджер
@@ -95,13 +96,15 @@ class NavMeshGenerator
     std::unordered_set<uint32_t> m_processedWmoIds;
     std::unordered_set<uint32_t> m_processedM2Ids;  // <--- Добавили
 
+    uint32_t m_currentMapId = 0;  ///< ID текущей обрабатываемой карты
+
     /**
      * @brief Парсит данные файла Map.dbc.
      * @param buffer Буфер с данными файла Map.dbc.
      */
     void parseMapDbc(const std::vector<unsigned char>& buffer);
 
-    void processAdtChunk(const std::string& mapName, const NavMeshTool::ADT::ADTData& adtData, int row, int col);
+    void processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col);
 
     // Здесь будут приватные методы для парсинга WDT, ADT, WMO, M2,
     // трансформации координат и т.д.

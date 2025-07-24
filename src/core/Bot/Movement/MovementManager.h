@@ -1,9 +1,13 @@
 #pragma once
 #include <QObject>
+#include <QTimer>  // Добавляем QTimer
 #include <QLoggingCategory>
 #include <memory>
+#include <vector>
 #include "core/Bot/Movement/CtM/CtM.h"
 #include "core/Bot/Movement/CtM/CtMEnablerHook.h"
+#include "core/Navigation/PathfindingService.h"  // Интеграция с сервисом поиска пути
+#include "core/Utils/Vector.h"                   // Для использования Vector3
 
 Q_DECLARE_LOGGING_CATEGORY(logMovementManager)
 
@@ -63,8 +67,24 @@ class MovementManager : public QObject
      */
     MovementSettings settings() const;
 
+   private slots:
+    /**
+     * @brief Слот, вызываемый по таймеру для обновления логики следования по пути.
+     */
+    void updatePathExecution();
+
    private:
-    std::unique_ptr<CtmExecutor> m_ctm;
-    std::unique_ptr<CtMEnablerHook> m_ctmEnablerHook;
+    /**
+     * @brief Callback-функция, вызываемая PathfindingService по завершении поиска пути.
+     * @param path - Найденный путь. Если путь не найден, вектор будет пустым.
+     */
+    void onPathFound(std::vector<Vector3> path);
+
+    std::unique_ptr<class CtmExecutor> m_ctm;
+    std::unique_ptr<class CtMEnablerHook> m_ctmEnablerHook;
     MovementSettings m_settings;
+    QTimer m_pathExecutorTimer;  ///< Таймер для проверки продвижения по пути.
+
+    std::vector<Vector3> m_currentPath;  ///< Текущий рассчитанный путь.
+    int m_currentPathIndex = -1;         ///< Индекс текущей точки в m_currentPath, к которой движется бот.
 };

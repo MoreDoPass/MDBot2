@@ -8,6 +8,7 @@ set(CMAKE_AUTOMOC ON)
 # и если родительский CMakeLists.txt не делает это глобально для всех подпроектов
 # так, чтобы это было видно здесь.
 find_package(capstone CONFIG REQUIRED)
+find_package(recastnavigation CONFIG REQUIRED)
 
 # --- Библиотека MemoryManager ---
 # Предполагается, что MemoryManager.h и MemoryManager.cpp находятся в MDBot2/src/core/MemoryManager/
@@ -46,6 +47,34 @@ if(TARGET Qt6::Core)
     target_link_libraries(Core_ProcessManager PUBLIC Qt6::Core)
 else()
     message(WARNING "Цель Qt6::Core не найдена. Core_ProcessManager может не скомпилироваться, если использует Qt.")
+endif()
+
+# --- Библиотека Utils ---
+# Содержит общие вспомогательные классы и функции, например, Vector3
+add_library(Core_Utils INTERFACE) # INTERFACE, т.к. содержит только заголовки
+target_include_directories(Core_Utils INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# --- Библиотека Navigation ---
+# Эта библиотека будет содержать все глобальные сервисы, связанные с навигацией.
+add_library(Core_Navigation STATIC
+    Navigation/NavMeshManager.cpp
+    Navigation/PathfindingService.cpp
+)
+target_include_directories(Core_Navigation PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+if(TARGET Qt6::Core)
+    target_link_libraries(Core_Navigation PUBLIC 
+        Qt6::Core
+        RecastNavigation::Recast
+        RecastNavigation::Detour
+        RecastNavigation::DetourTileCache
+        Core_Utils
+    )
+else()
+    message(WARNING "Цель Qt6::Core не найдена. Core_Navigation может не скомпилироваться, если использует Qt.")
 endif()
 
 # --- Другие core библиотеки можно добавить здесь по аналогии --- 

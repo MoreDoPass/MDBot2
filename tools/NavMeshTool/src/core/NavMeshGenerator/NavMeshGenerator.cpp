@@ -9,6 +9,8 @@
 #include <iomanip>
 #include <cmath>  // Для sin, cos
 #include <array>
+#include <filesystem>  // Для std::filesystem::create_directories
+#include <QDir>        // Для альтернативного способа создания директорий через Qt
 
 // Пока что MpqManager.h не нужен здесь, так как мы работаем только со ссылкой,
 // а все вызовы будут через m_mpqManager, тип которой уже известен из NavMeshGenerator.h
@@ -45,11 +47,14 @@ NavMeshGenerator::NavMeshGenerator(MpqManager& mpqManager)
     qCDebug(logNavMeshGenerator) << "NavMeshGenerator created.";
 }
 
-bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector<std::pair<int, int>>& adtCoords)
+bool NavMeshGenerator::loadMapData(const std::string& mapName, uint32_t mapId,
+                                   const std::vector<std::pair<int, int>>& adtCoords)
 {
-    Q_UNUSED(adtCoords);  // Пока не используем выборочную загрузку ADT
+    Q_UNUSED(adtCoords);     // Пока не используем выборочную загрузку ADT
+    m_currentMapId = mapId;  // Сохраняем ID карты для использования в других методах
 
-    qCInfo(logNavMeshGenerator) << "Loading map data for map:" << QString::fromStdString(mapName);
+    qCInfo(logNavMeshGenerator) << "Loading map data for map:" << QString::fromStdString(mapName)
+                                << "with ID:" << mapId;
 
     // Очищаем данные от предыдущих запусков (если есть)
     // m_worldVertices и m_worldTriangleIndices удалены
@@ -98,8 +103,8 @@ bool NavMeshGenerator::loadMapData(const std::string& mapName, const std::vector
             continue;  // Пропускаем
         }
 
-        // Передаем данные в обработчик
-        processAdtChunk(mapName, *adtDataOpt, adtEntry.y, adtEntry.x);
+        // Передаем данные в обработчик, БЕЗ mapName
+        processAdtChunk(*adtDataOpt, adtEntry.y, adtEntry.x);
     }
 
     qInfo(logNavMeshGenerator) << "Finished processing all ADTs for map" << QString::fromStdString(mapName);
@@ -118,8 +123,7 @@ void NavMeshGenerator::parseMapDbc(const std::vector<unsigned char>& buffer)
     // TODO: Implement Map.dbc parsing if needed for map names by ID
 }
 
-void NavMeshGenerator::processAdtChunk(const std::string& mapName, const NavMeshTool::ADT::ADTData& adtData, int row,
-                                       int col)
+void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col)
 {
     // Этот метод теперь является "фабрикой" для одного ADT-тайла.
 
@@ -153,27 +157,36 @@ void NavMeshGenerator::processAdtChunk(const std::string& mapName, const NavMesh
         return;
     }
 
-    // 4. (Опционально) Сохраняем геометрию этого ADT в .obj для отладки
-    std::string objFilename = mapName + "_" + std::to_string(col) + "_" + std::to_string(row) + ".obj";
-    if (saveToObj(objFilename, adtVertices, adtIndices))
+    // 4. (Опционально) Сохраняем СЫРУЮ геометрию этого ADT в .obj для отладки
+    const std::string outputDir = "output/" + std::to_string(m_currentMapId);
+    QDir().mkpath(QString::fromStdString(outputDir));
+
+    const std::string baseFilename = std::to_string(col) + "_" + std::to_string(row);
+
+    // Имя файла для СЫРОЙ геометрии
+    const std::string rawObjFilename = outputDir + "/" + baseFilename + ".obj";
+
+    if (saveToObj(rawObjFilename, adtVertices, adtIndices))
     {
-        qCInfo(logNavMeshGenerator) << "Successfully saved ADT geometry to" << QString::fromStdString(objFilename);
+        qCInfo(logNavMeshGenerator) << "Successfully saved ADT geometry to" << QString::fromStdString(rawObjFilename);
     }
     else
     {
-        qCWarning(logNavMeshGenerator) << "Failed to save ADT geometry to" << QString::fromStdString(objFilename);
+        qCWarning(logNavMeshGenerator) << "Failed to save ADT geometry to" << QString::fromStdString(rawObjFilename);
     }
 
     // 5. Строим и сохраняем NavMesh для этого ADT
-    std::string navmeshFilename = mapName + "_" + std::to_string(col) + "_" + std::to_string(row) + ".navmesh";
-    if (buildAndSaveNavMesh(navmeshFilename, adtVertices, adtIndices))
+    const std::string navmeshFilename = outputDir + "/" + baseFilename + ".navmesh";
+    // Имя файла для ОТЛАДОЧНОЙ геометрии NavMesh'а
+    const std::string navmeshObjFilename = outputDir + "/" + baseFilename + "_navmesh.obj";
+
+    if (buildAndSaveNavMesh(navmeshFilename, navmeshObjFilename, adtVertices, adtIndices))
     {
-        qCInfo(logNavMeshGenerator) << "Successfully built and saved NavMesh to"
-                                    << QString::fromStdString(navmeshFilename);
+        qCInfo(logNavMeshGenerator) << "Successfully processed ADT chunk for" << QString::fromStdString(baseFilename);
     }
     else
     {
-        qCWarning(logNavMeshGenerator) << "Failed to build NavMesh for" << QString::fromStdString(navmeshFilename);
+        qCWarning(logNavMeshGenerator) << "Failed to build NavMesh for" << QString::fromStdString(baseFilename);
     }
 }
 
@@ -207,8 +220,58 @@ bool NavMeshGenerator::saveToObj(const std::string& filepath, const std::vector<
     return true;
 }
 
-bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& filepath, const std::vector<float>& vertices,
-                                                    const std::vector<int>& indices) const
+bool NavMeshGenerator::saveNavMeshToObj(const std::string& filepath, const rcPolyMesh* polyMesh) const
+{
+    if (!polyMesh)
+    {
+        return false;
+    }
+
+    std::ofstream objFile(filepath);
+    if (!objFile.is_open())
+    {
+        qWarning(logNavMeshGenerator) << "Cannot open file for writing:" << QString::fromStdString(filepath);
+        return false;
+    }
+
+    objFile << std::fixed << std::setprecision(6);
+
+    // 1. Записываем вершины
+    // Вершины в rcPolyMesh хранятся как unsigned short, которые нужно умножить на cs и ch
+    // и прибавить к bmin, чтобы получить мировые координаты.
+    for (int i = 0; i < polyMesh->nverts; ++i)
+    {
+        const unsigned short* v = &polyMesh->verts[i * 3];
+        const float x = polyMesh->bmin[0] + v[0] * polyMesh->cs;
+        const float y = polyMesh->bmin[1] + v[1] * polyMesh->ch;
+        const float z = polyMesh->bmin[2] + v[2] * polyMesh->cs;
+        objFile << "v " << x << " " << y << " " << z << "\n";
+    }
+
+    // 2. Записываем грани (полигоны)
+    // Индексы в .obj начинаются с 1
+    for (int i = 0; i < polyMesh->npolys; ++i)
+    {
+        const unsigned short* p = &polyMesh->polys[i * 2 * polyMesh->nvp];
+        objFile << "f";
+        for (int j = 0; j < polyMesh->nvp; ++j)
+        {
+            if (p[j] == RC_MESH_NULL_IDX)
+            {
+                break;  // Конец полигона
+            }
+            objFile << " " << (p[j] + 1);
+        }
+        objFile << "\n";
+    }
+
+    objFile.close();
+    return true;
+}
+
+bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& navMeshFilePath,
+                                                    const std::string& navMeshObjFilePath,
+                                                    const std::vector<float>& vertices, const std::vector<int>& indices)
 {
     // 1. Проверяем, есть ли у нас геометрия для обработки.
     if (vertices.empty() || indices.empty())
@@ -218,27 +281,18 @@ bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& filepath,
     }
 
     // 2. Настраиваем конфигурацию Recast.
-    // Это базовые параметры. В будущем их можно будет вынести в GUI
-    // или загружать из файла конфигурации.
     rcConfig config;
     memset(&config, 0, sizeof(config));
-
-    // РАДИКАЛЬНОЕ ИЗМЕНЕНИЕ: Увеличиваем размер вокселя для борьбы с экстремально "шумными" тайлами.
-    // Это основной способ "загрубить" геометрию на самом раннем этапе.
-    config.cs = 1.0f;  // Было 0.3
-    config.ch = 1.0f;  // Было 0.2
-
+    config.cs = 1.0f;
+    config.ch = 0.20f;
     config.walkableSlopeAngle = 45.0f;
     config.walkableHeight = (int)ceilf(2.0f / config.ch);
-    config.walkableClimb = (int)floorf(0.9f / config.ch);
+    config.walkableClimb = (int)floorf(2.0f / config.ch);
     config.walkableRadius = (int)ceilf(0.5f / config.cs);
     config.maxEdgeLen = (int)(12.0f / config.cs);
     config.maxSimplificationError = 1.3f;
-
-    // Оставляем увеличенные значения из прошлой попытки.
     config.minRegionArea = (int)rcSqr(20);
     config.mergeRegionArea = (int)rcSqr(40);
-
     config.maxVertsPerPoly = 6;
     config.detailSampleDist = 6.0f;
     config.detailSampleMaxError = 1.0f;
@@ -247,36 +301,48 @@ bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& filepath,
     NavMesh::RecastBuilder builder(config);
 
     // 4. Вызываем построение NavMesh
-    qInfo(logNavMeshGenerator) << "Начинается генерация NavMesh для" << filepath.c_str();
+    qInfo(logNavMeshGenerator) << "Начинается генерация NavMesh для" << navMeshFilePath.c_str();
 
-    // Передаем константные ссылки на наши векторы геометрии
-    auto navMeshData = builder.build(vertices, indices);
+    auto buildResultOpt = builder.build(vertices, indices);
 
-    if (!navMeshData)
+    if (!buildResultOpt)
     {
-        qCritical(logNavMeshGenerator) << "Ошибка генерации NavMesh для" << filepath.c_str();
+        qCritical(logNavMeshGenerator) << "Ошибка генерации NavMesh для" << navMeshFilePath.c_str();
         return false;
     }
 
-    qInfo(logNavMeshGenerator) << "NavMesh успешно сгенерирован. Размер:" << navMeshData->size() << "байт.";
+    auto& buildResult = *buildResultOpt;
+    qInfo(logNavMeshGenerator) << "NavMesh успешно сгенерирован. Размер:" << buildResult.navmeshData.size() << "байт.";
 
-    // 5. Сохраняем результат в файл
+    // 5. Сохраняем результат в .navmesh файл
     try
     {
-        std::ofstream outFile(filepath, std::ios::binary);
+        std::ofstream outFile(navMeshFilePath, std::ios::binary);
         if (!outFile)
         {
-            qCritical(logNavMeshGenerator) << "Не удалось открыть файл для записи:" << filepath.c_str();
+            qCritical(logNavMeshGenerator) << "Не удалось открыть файл для записи:" << navMeshFilePath.c_str();
             return false;
         }
 
-        outFile.write(reinterpret_cast<const char*>(navMeshData->data()), navMeshData->size());
-        qInfo(logNavMeshGenerator) << "NavMesh сохранен в" << filepath.c_str();
+        outFile.write(reinterpret_cast<const char*>(buildResult.navmeshData.data()), buildResult.navmeshData.size());
+        qInfo(logNavMeshGenerator) << "NavMesh сохранен в" << navMeshFilePath.c_str();
     }
     catch (const std::exception& e)
     {
         qCritical(logNavMeshGenerator) << "Ошибка при записи в файл:" << e.what();
         return false;
+    }
+
+    // 6. Сохраняем отладочный .obj файл
+    if (saveNavMeshToObj(navMeshObjFilePath, buildResult.polyMesh.get()))
+    {
+        qCInfo(logNavMeshGenerator) << "Successfully saved NavMesh debug geometry to"
+                                    << QString::fromStdString(navMeshObjFilePath);
+    }
+    else
+    {
+        qCWarning(logNavMeshGenerator) << "Failed to save NavMesh debug geometry to"
+                                       << QString::fromStdString(navMeshObjFilePath);
     }
 
     return true;
