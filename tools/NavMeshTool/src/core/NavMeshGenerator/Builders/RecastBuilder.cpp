@@ -73,7 +73,8 @@ RecastBuilder::RecastBuilder(const rcConfig& config) : m_config(config)
     qCDebug(logRecastBuilder) << "RecastBuilder initialized.";
 }
 
-std::optional<BuildResult> RecastBuilder::build(const std::vector<float>& vertices, const std::vector<int>& indices)
+std::optional<BuildResult> RecastBuilder::build(const std::vector<float>& vertices, const std::vector<int>& indices,
+                                                int tx, int ty)
 {
     // Оборачиваем весь процесс в try-catch, чтобы перехватить
     // любые стандартные C++ исключения, если они возникнут.
@@ -259,6 +260,9 @@ std::optional<BuildResult> RecastBuilder::build(const std::vector<float>& vertic
         params.cs = m_config.cs;
         params.ch = m_config.ch;
         params.buildBvTree = true;
+        // Устанавливаем координаты тайла, которые будут записаны в заголовок
+        params.tileX = tx;
+        params.tileY = ty;
 
         qCDebug(logRecastBuilder) << "Preparing to create Detour data. Polygons:" << pmesh->npolys
                                   << "Vertices:" << pmesh->nverts;

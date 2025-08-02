@@ -1,13 +1,15 @@
 #include "Bot.h"
 #include "core/Bot/Character/Character.h"
+#include "core/Navigation/PathfindingService.h"  // Для инициализации сервиса
 #include <QThread>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(logBot, "mdbot.bot")
 
-Bot::Bot(qint64 processId, QObject* parent)
+Bot::Bot(qint64 processId, const QString& processName, QObject* parent)
     : QObject(parent),
       m_processId(processId),
+      m_processName(processName),
       m_memoryManager(),
       m_hookManager(&m_memoryManager),
       m_running(false),
@@ -15,7 +17,7 @@ Bot::Bot(qint64 processId, QObject* parent)
 {
     try
     {
-        if (!m_memoryManager.openProcess(static_cast<DWORD>(processId)))
+        if (!m_memoryManager.openProcess(static_cast<DWORD>(processId), processName.toStdWString()))
         {
             qCCritical(logBot) << "Не удалось открыть процесс в MemoryManager для PID:" << m_processId;
         }
@@ -23,7 +25,10 @@ Bot::Bot(qint64 processId, QObject* parent)
         {
             qCInfo(logBot) << "Создан объект Bot и MemoryManager для PID:" << m_processId;
             m_character = new Character(&m_memoryManager, this);
-            m_movementManager = new MovementManager(&m_memoryManager, this);
+            m_movementManager = new MovementManager(&m_memoryManager, m_character, this);
+
+            // Запускаем сервисы
+            PathfindingService::getInstance().start();
         }
     }
     catch (const std::exception& ex)
@@ -38,6 +43,10 @@ Bot::~Bot()
     {
         qCInfo(logBot) << "Уничтожение объекта Bot для процесса с PID:" << m_processId;
         stop();
+
+        // Останавливаем сервисы
+        PathfindingService::getInstance().stop();
+
         delete m_character;
         delete m_movementManager;
         // Все ресурсы MemoryManager освободятся автоматически

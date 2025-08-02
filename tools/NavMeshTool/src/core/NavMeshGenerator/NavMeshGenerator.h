@@ -73,7 +73,7 @@ class NavMeshGenerator
      * @return true, если построение и сохранение прошли успешно, иначе false.
      */
     bool buildAndSaveNavMesh(const std::string& navMeshFilePath, const std::string& navMeshObjFilePath,
-                             const std::vector<float>& vertices, const std::vector<int>& indices);
+                             const std::vector<float>& vertices, const std::vector<int>& indices, int tx, int ty);
     bool saveNavMeshToObj(const std::string& filepath, const rcPolyMesh* polyMesh) const;
 
    private:

@@ -65,7 +65,8 @@ class RecastBuilder
      * @return std::optional, содержащий структуру BuildResult в случае успеха.
      *         В случае ошибки возвращает std::nullopt.
      */
-    std::optional<BuildResult> build(const std::vector<float>& vertices, const std::vector<int>& indices);
+    std::optional<BuildResult> build(const std::vector<float>& vertices, const std::vector<int>& indices, int tx,
+                                     int ty);
 
    private:
     rcConfig m_config;  ///< Локальная копия конфигурации для построения меша.

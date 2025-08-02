@@ -84,7 +84,7 @@ void MainWindow::addProcessTab(const ProcessInfo& info)
     try
     {
         // Создаём объект Bot с PID процесса (только через new!)
-        Bot* bot = new Bot(static_cast<qint64>(info.pid));
+        Bot* bot = new Bot(static_cast<qint64>(info.pid), QString::fromStdWString(info.name));
         if (!bot)
         {
             qCCritical(mainWindowLog) << "Не удалось создать объект Bot для PID:" << info.pid;

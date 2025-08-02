@@ -1,13 +1,14 @@
 #include "MovementManager.h"
 #include "core/Bot/Movement/CtM/CtMEnablerHook.h"
 #include <QLoggingCategory>
+#include "core/Navigation/NavMeshManager.h"
 #include "core/Navigation/PathfindingService.h"
 #include "core/Bot/Character/Character.h"  // Предполагается, что у нас есть доступ к Character для получения текущей позиции
 
 Q_LOGGING_CATEGORY(logMovementManager, "mdbot.movementmanager")
 
-MovementManager::MovementManager(MemoryManager* memory, QObject* parent)
-    : QObject(parent), m_ctm(std::make_unique<CtmExecutor>(memory))
+MovementManager::MovementManager(MemoryManager* memory, Character* character, QObject* parent)
+    : QObject(parent), m_character(character), m_ctm(std::make_unique<CtmExecutor>(memory))
 {
     qCInfo(logMovementManager) << "MovementManager создан";
 
@@ -34,16 +35,14 @@ bool MovementManager::moveTo(float x, float y, float z, const MovementSettings& 
 {
     m_settings = settings;
 
-    // TODO: Получить текущую позицию персонажа.
-    // Пока что используем заглушку. В реальном коде это будет что-то вроде
-    // Vector3 currentPos = m_character->getPosition();
-    Vector3 currentPos(0, 0, 0);
+    Vector3 currentPos = m_character->GetPosition();
+    quint32 mapId = m_character->GetMapId();
 
     qCInfo(logMovementManager) << "Запрос на поиск пути от" << currentPos.x << currentPos.y << currentPos.z << "до" << x
                                << y << z;
 
     PathfindingRequest request;
-    request.mapId = 0;  // TODO: Получить актуальный MapID
+    request.mapId = mapId;
     request.startPos = currentPos;
     request.endPos = {x, y, z};
 
@@ -99,8 +98,12 @@ void MovementManager::updatePathExecution()
         return;  // Нет активного пути
     }
 
-    // TODO: Получить актуальную позицию персонажа
-    Vector3 currentPos(0, 0, 0);
+    Vector3 currentPos = m_character->GetPosition();
+    quint32 mapId = m_character->GetMapId();
+
+    // Обновляем NavMeshManager, чтобы он мог подгружать тайлы вокруг игрока
+    NavMeshManager::getInstance().update(mapId, currentPos);
+
     const auto& targetPoint = m_currentPath[m_currentPathIndex];
 
     // Простая проверка дистанции (в 2D, без учета Z)

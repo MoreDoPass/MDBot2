@@ -9,6 +9,8 @@
 #include "core/Navigation/PathfindingService.h"  // Интеграция с сервисом поиска пути
 #include "core/Utils/Vector.h"                   // Для использования Vector3
 
+class Character;
+
 Q_DECLARE_LOGGING_CATEGORY(logMovementManager)
 
 /**
@@ -39,7 +41,7 @@ class MovementManager : public QObject
 {
     Q_OBJECT
    public:
-    explicit MovementManager(class MemoryManager* memory, QObject* parent = nullptr);
+    explicit MovementManager(class MemoryManager* memory, class Character* character, QObject* parent = nullptr);
     ~MovementManager();
 
     /**
@@ -87,4 +89,5 @@ class MovementManager : public QObject
 
     std::vector<Vector3> m_currentPath;  ///< Текущий рассчитанный путь.
     int m_currentPathIndex = -1;         ///< Индекс текущей точки в m_currentPath, к которой движется бот.
+    class Character* m_character;        ///< Указатель на объект персонажа для получения актуальных данных.
 };

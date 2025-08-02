@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QLoggingCategory>
 #include <QThread>
+#include <QString>  // Для QString
 #include "core/MemoryManager/MemoryManager.h"
 #include "core/HookManager/HookManager.h"
 #include "core/Bot/Character/Character.h"
@@ -20,7 +21,13 @@ class Bot : public QObject
 {
     Q_OBJECT
    public:
-    explicit Bot(qint64 processId, QObject* parent = nullptr);
+    /**
+     * @brief Конструктор Bot.
+     * @param processId PID процесса.
+     * @param processName Имя процесса (например, "run.exe").
+     * @param parent Родительский QObject.
+     */
+    explicit Bot(qint64 processId, const QString& processName, QObject* parent = nullptr);
     ~Bot();
 
     /**
@@ -53,6 +60,7 @@ class Bot : public QObject
 
    private:
     qint64 m_processId;             ///< PID процесса WoW
+    QString m_processName;          ///< Имя процесса (run.exe, Wow.exe)
     MemoryManager m_memoryManager;  ///< Объект MemoryManager для работы с памятью
     HookManager m_hookManager;
     Character* m_character = nullptr;

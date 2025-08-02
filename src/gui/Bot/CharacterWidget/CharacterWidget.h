@@ -7,6 +7,7 @@
 #include <QCheckBox>
 #include <QTimer>
 #include "core/Bot/Character/Character.h"
+#include "core/Bot/Movement/MovementManager.h"  // Добавляем MovementManager
 
 /**
  * @brief Категория логирования для CharacterWidget.
@@ -25,9 +26,10 @@ class CharacterWidget : public QWidget
     /**
      * @brief Конструктор CharacterWidget.
      * @param character Указатель на объект Character.
+     * @param movementManager Указатель на объект MovementManager для отправки команд.
      * @param parent Родительский виджет.
      */
-    explicit CharacterWidget(Character* character, QWidget* parent = nullptr);
+    explicit CharacterWidget(Character* character, MovementManager* movementManager, QWidget* parent = nullptr);
     ~CharacterWidget() override;
 
    private slots:
@@ -47,15 +49,21 @@ class CharacterWidget : public QWidget
 
    private:
     Character* m_character = nullptr;
+    MovementManager* m_movementManager = nullptr;  // Добавляем указатель
     QLabel* m_nameLabel = nullptr;
     QLabel* m_levelLabel = nullptr;
     QLabel* m_healthLabel = nullptr;
     QLabel* m_manaLabel = nullptr;
     QLabel* m_positionLabel = nullptr;
+    QLabel* m_mapIdLabel = nullptr;  // Добавляем метку для MapID
     QLabel* m_stateLabel = nullptr;
     QPushButton* m_updateButton = nullptr;
     QCheckBox* m_autoUpdateCheck = nullptr;
     QTimer* m_autoUpdateTimer = nullptr;
+
+    // Кнопки для навигации
+    QPushButton* m_navSchoolButton = nullptr;
+    QPushButton* m_navEronaButton = nullptr;
 
     /**
      * @brief Обновляет отображение данных персонажа в UI.

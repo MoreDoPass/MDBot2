@@ -75,7 +75,7 @@ int main(int argc, char* argv[])
             qCInfo(logNavMeshToolApp) << "Successfully parsed" << allMaps.size() << "maps.";
 
             // 3. Ищем в списке нужную нам карту.
-            const std::string desiredMapName = "Black Temple";
+            const std::string desiredMapName = "Outland";
             std::optional<MapRecord> foundMap;
 
             for (const auto& mapRecord : allMaps)

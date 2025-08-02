@@ -93,35 +93,54 @@ bool Character::updateFromMemory()
     {
         setBaseAddress(newBase);
     }
-    if (!m_baseAddress)
-    {
-        qCWarning(characterLog) << "Базовый адрес структуры персонажа не получен, пропуск обновления данных.";
-        return false;
-    }
+
     try
     {
         CharacterData newData = m_data;
         bool ok = true;
-        ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.level, newData.level);
-        ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.health, newData.health);
-        ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.maxHealth, newData.maxHealth);
-        ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.mana, newData.mana);
-        ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.maxMana, newData.maxMana);
-        ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posX, newData.posX);
-        ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posY, newData.posY);
-        ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posZ, newData.posZ);
-        // Имя и inCombat можно добавить по аналогии, если известны смещения
+        bool hasDataChanged = false;
+
+        // Чтение данных из структуры персонажа
+        if (m_baseAddress)
+        {
+            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.level, newData.level);
+            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.health, newData.health);
+            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.maxHealth, newData.maxHealth);
+            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.mana, newData.mana);
+            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.maxMana, newData.maxMana);
+            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posX, newData.posX);
+            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posY, newData.posY);
+            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posZ, newData.posZ);
+        }
+        else
+        {
+            qCWarning(characterLog) << "Базовый адрес структуры персонажа не получен, часть данных не будет обновлена.";
+        }
+
+        // Чтение глобальных данных
+        uintptr_t moduleBase = m_memoryManager->getMainModuleBaseAddress();
+        if (moduleBase)
+        {
+            ok &= m_memoryManager->readMemory(moduleBase + m_globalOffsets.mapId, newData.mapId);
+        }
+        else
+        {
+            qCWarning(characterLog) << "Не удалось получить базовый адрес главного модуля, MapID не будет обновлен.";
+            ok = false;
+        }
+
         if (!ok)
         {
             qCWarning(characterLog) << "Не все данные персонажа удалось прочитать из памяти!";
         }
+
         if (memcmp(&m_data, &newData, sizeof(CharacterData)) != 0)
         {
             m_data = newData;
             emit dataChanged(m_data);
             qCDebug(characterLog) << "Данные персонажа обновлены: Level:" << m_data.level << "HP:" << m_data.health
-                                  << "/" << m_data.maxHealth << "Mana:" << m_data.mana << "/" << m_data.maxMana
-                                  << "Pos:" << m_data.posX << m_data.posY << m_data.posZ;
+                                  << "/" << m_data.maxHealth << "Pos:" << m_data.posX << m_data.posY << m_data.posZ
+                                  << "MapID:" << m_data.mapId;
         }
         return ok;
     }
@@ -130,4 +149,14 @@ bool Character::updateFromMemory()
         qCCritical(characterLog) << "Исключение при обновлении данных персонажа:" << e.what();
         return false;
     }
+}
+
+Vector3 Character::GetPosition() const
+{
+    return Vector3(m_data.posX, m_data.posY, m_data.posZ);
+}
+
+uint32_t Character::GetMapId() const
+{
+    return m_data.mapId;
 }

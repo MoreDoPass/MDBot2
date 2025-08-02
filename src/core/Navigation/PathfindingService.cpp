@@ -102,6 +102,10 @@ void PathfindingService::workerLoop()
                 throw std::runtime_error("Не удалось получить NavMesh для карты " + std::to_string(request.mapId));
             }
 
+            // ПЕРЕД поиском пути, убедимся, что тайлы вокруг стартовой точки загружены.
+            // Это заставит NavMeshManager подгрузить данные с диска, если их еще нет в памяти.
+            NavMeshManager::getInstance().update(request.mapId, request.startPos);
+
             // Инициализируем NavMeshQuery для текущего NavMesh
             if (dtStatusFailed(navQuery.init(navMesh, 2048)))
             {

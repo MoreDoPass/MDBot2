@@ -13,13 +13,23 @@ std::vector<Vector3> Pathfinder::findPath(dtNavMeshQuery* navQuery, const Vector
         return {};
     }
 
+    // Преобразуем координаты из Z-Up (WoW) в Y-Up (Recast/Detour)
+    float recastStartPos[3] = {startPos.x, startPos.z, -startPos.y};
+    float recastEndPos[3] = {endPos.x, endPos.z, -endPos.y};
+
+    qCDebug(pathfinder) << "Поиск полигонов. Start WoW:" << startPos.x << startPos.y << startPos.z
+                        << "-> Recast:" << recastStartPos[0] << recastStartPos[1] << recastStartPos[2];
+    qCDebug(pathfinder) << "End WoW:" << endPos.x << endPos.y << endPos.z << "-> Recast:" << recastEndPos[0]
+                        << recastEndPos[1] << recastEndPos[2];
+    qCDebug(pathfinder) << "Радиус поиска (extents):" << m_extents.x << m_extents.y << m_extents.z;
+
     dtQueryFilter filter;
     filter.setIncludeFlags(0xFFFF);
     filter.setExcludeFlags(0);
 
     dtPolyRef startRef, endRef;
-    navQuery->findNearestPoly(&startPos.x, &m_extents.x, &filter, &startRef, nullptr);
-    navQuery->findNearestPoly(&endPos.x, &m_extents.x, &filter, &endRef, nullptr);
+    navQuery->findNearestPoly(recastStartPos, &m_extents.x, &filter, &startRef, nullptr);
+    navQuery->findNearestPoly(recastEndPos, &m_extents.x, &filter, &endRef, nullptr);
 
     if (!startRef || !endRef)
     {
@@ -30,17 +40,19 @@ std::vector<Vector3> Pathfinder::findPath(dtNavMeshQuery* navQuery, const Vector
 
     dtPolyRef polys[MAX_POLYS];
     int polyCount = 0;
-    navQuery->findPath(startRef, endRef, &startPos.x, &endPos.x, &filter, polys, &polyCount, MAX_POLYS);
+    navQuery->findPath(startRef, endRef, recastStartPos, recastEndPos, &filter, polys, &polyCount, MAX_POLYS);
 
     if (polyCount > 0)
     {
-        navQuery->findStraightPath(&startPos.x, &endPos.x, polys, polyCount, m_straightPath, m_straightPathFlags,
+        navQuery->findStraightPath(recastStartPos, recastEndPos, polys, polyCount, m_straightPath, m_straightPathFlags,
                                    m_straightPathPolys, &m_straightPathCount, MAX_POLYS);
 
         std::vector<Vector3> path;
         for (int i = 0; i < m_straightPathCount; ++i)
         {
-            path.emplace_back(m_straightPath[i * 3], m_straightPath[i * 3 + 1], m_straightPath[i * 3 + 2]);
+            const float* point = &m_straightPath[i * 3];
+            // Преобразуем обратно в Z-Up для использования в игре (x, y, z) -> (x, -z, y)
+            path.emplace_back(point[0], -point[2], point[1]);
         }
         qCInfo(pathfinder) << "Путь успешно найден. Количество точек:" << path.size();
         return path;

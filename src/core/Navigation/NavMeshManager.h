@@ -1,22 +1,23 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <mutex>
-#include <cstdint>
+#include <set>
 #include "Utils/Vector.h"  // Для Vector3
 
 // Прямые объявления, чтобы не делать заголовок слишком тяжелым
 class dtNavMesh;
-class dtTileCache;
 class dtNavMeshQuery;
 
 /**
  * @class NavMeshManager
  * @brief Потокобезопасный синглтон для управления тайловыми NavMesh данными.
  *
- * Этот класс отвечает за динамическую загрузку и выгрузку тайлов NavMesh для различных карт (mapId)
- * с использованием dtTileCache. Он держит в памяти только необходимые тайлы вокруг персонажа,
- * что значительно экономит память при работе с большими континентами.
+ * Этот класс отвечает за динамическую загрузку тайлов NavMesh для различных карт (mapId)
+ * напрямую в dtNavMesh. Он держит в памяти только необходимые тайлы вокруг персонажа.
+ * В отличие от предыдущей реализации, этот класс НЕ использует dtTileCache, так как
+ * мы работаем с уже готовыми, "запеченными" тайлами, а не со слоями данных.
  */
 class NavMeshManager
 {
@@ -26,7 +27,7 @@ class NavMeshManager
     /**
      * @brief Получает dtNavMesh для указанной карты.
      *
-     * Если кэш для карты еще не создан, он будет инициализирован.
+     * Если NavMesh для карты еще не создан, он будет инициализирован.
      * Возвращаемый указатель управляется NavMeshManager'ом и не должен удаляться извне.
      *
      * @param mapId - ID карты.
@@ -35,10 +36,10 @@ class NavMeshManager
     dtNavMesh* getNavMeshForMap(uint32_t mapId);
 
     /**
-     * @brief Периодически вызываемый метод для обновления кэша тайлов.
+     * @brief Периодически вызываемый метод для загрузки тайлов вокруг игрока.
      *
-     * Сообщает dtTileCache актуальную позицию игрока, чтобы тот мог
-     * подгрузить нужные и выгрузить ненужные тайлы.
+     * На основе позиции игрока вычисляет, какие тайлы должны быть загружены,
+     * и подгружает их с диска, если они еще не в памяти.
      *
      * @param mapId - ID текущей карты игрока.
      * @param position - Актуальная позиция игрока.
@@ -46,22 +47,40 @@ class NavMeshManager
     void update(uint32_t mapId, const Vector3& position);
 
    private:
-    NavMeshManager();  // Конструктор теперь приватный и не default, т.к. нужна логика
+    NavMeshManager();
     ~NavMeshManager();
 
     NavMeshManager(const NavMeshManager&) = delete;
     NavMeshManager& operator=(const NavMeshManager&) = delete;
 
     // Внутренняя структура для хранения всех данных, связанных с одной картой
-    struct TileCacheData;
+    struct NavMeshData
+    {
+        dtNavMesh* navMesh = nullptr;
+        std::set<long> loadedTiles;  // Храним тайлы по ключу (x << 16) | y
+
+        ~NavMeshData()
+        {
+            // dtFreeNavMesh будет вызван в деструкторе NavMeshManager
+        }
+    };
 
     /**
-     * @brief Инициализирует кэш тайлов для новой карты.
+     * @brief Инициализирует dtNavMesh для новой карты.
      * @param mapId - ID карты.
-     * @return TileCacheData* - указатель на созданную структуру данных кэша.
+     * @return NavMeshData* - указатель на созданную структуру.
      */
-    TileCacheData* initTileCache(uint32_t mapId);
+    NavMeshData* initNavMesh(uint32_t mapId);
 
-    std::map<uint32_t, TileCacheData*> m_tileCaches;  ///< Кэш, где для каждого mapId хранится свой TileCache.
-    std::mutex m_mutex;                               ///< Мьютекс для обеспечения потокобезопасности.
+    /**
+     * @brief Загружает файл с диска в буфер.
+     * @param path - Путь к файлу.
+     * @param[out] size - Размер загруженных данных.
+     * @return unsigned char* - Указатель на буфер с данными или nullptr в случае ошибки.
+     * @note Вызывающий код отвечает за освобождение памяти буфера с помощью delete[].
+     */
+    unsigned char* loadFile(const std::string& path, int* size);
+
+    std::map<uint32_t, NavMeshData*> m_navMeshes;  ///< Кэш, где для каждого mapId хранится свой NavMesh.
+    std::mutex m_mutex;                            ///< Мьютекс для обеспечения потокобезопасности.
 };

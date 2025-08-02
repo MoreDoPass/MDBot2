@@ -4,6 +4,7 @@
 #include <QLoggingCategory>
 #include <windows.h>
 #include <optional>
+#include <string>  // Для std::wstring
 
 Q_DECLARE_LOGGING_CATEGORY(memoryManagerLog)
 
@@ -28,11 +29,12 @@ class MemoryManager : public QObject
     ~MemoryManager();
 
     /**
-     * @brief Открыть процесс по PID
-     * @param pid Идентификатор процесса
-     * @return true, если процесс успешно открыт
+     * @brief Открыть процесс по PID и имени его главного модуля.
+     * @param pid Идентификатор процесса.
+     * @param mainModuleName Имя главного исполняемого файла (например, L"run.exe").
+     * @return true, если процесс успешно открыт.
      */
-    bool openProcess(DWORD pid);
+    bool openProcess(DWORD pid, const std::wstring& mainModuleName);
 
     /**
      * @brief Закрыть процесс (если был открыт)
@@ -50,6 +52,12 @@ class MemoryManager : public QObject
      * @return PID или std::nullopt, если процесс не открыт
      */
     std::optional<DWORD> pid() const;
+
+    /**
+     * @brief Получить базовый адрес главного модуля текущего процесса.
+     * @return Базовый адрес или 0 при ошибке.
+     */
+    uintptr_t getMainModuleBaseAddress();
 
     /**
      * @brief Универсальный шаблонный метод для чтения значения любого типа из памяти процесса.
@@ -73,8 +81,9 @@ class MemoryManager : public QObject
                 ReadProcessMemory(m_processHandle, reinterpret_cast<LPCVOID>(address), &value, sizeof(T), &bytesRead);
             if (!result || bytesRead != sizeof(T))
             {
-                qCCritical(memoryManagerLog)
-                    << "Ошибка чтения памяти по адресу" << Qt::hex << address << ", код ошибки:" << GetLastError();
+                // Уменьшаем критичность лога, т.к. чтение по "мусорному" адресу - частая ситуация
+                // qCCritical(memoryManagerLog)
+                //     << "Ошибка чтения памяти по адресу" << Qt::hex << address << ", код ошибки:" << GetLastError();
                 return false;
             }
             return true;
@@ -107,8 +116,8 @@ class MemoryManager : public QObject
                 ReadProcessMemory(m_processHandle, reinterpret_cast<LPCVOID>(address), buffer, size, &bytesRead);
             if (!result || bytesRead != size)
             {
-                qCCritical(memoryManagerLog)
-                    << "Ошибка чтения строки по адресу" << Qt::hex << address << ", код ошибки:" << GetLastError();
+                // qCCritical(memoryManagerLog)
+                //     << "Ошибка чтения строки по адресу" << Qt::hex << address << ", код ошибки:" << GetLastError();
                 return false;
             }
             return true;
@@ -214,7 +223,17 @@ class MemoryManager : public QObject
      */
     bool changeMemoryProtection(void* address, size_t size, DWORD newProtection, DWORD* oldProtection = nullptr);
 
+   private:
+    /**
+     * @brief Находит базовый адрес модуля в процессе. Вспомогательный метод.
+     * @param moduleName Имя модуля для поиска.
+     * @return Базовый адрес или 0.
+     */
+    uintptr_t findModuleBaseAddress(const std::wstring& moduleName);
+
    protected:
     HANDLE m_processHandle = nullptr;
     DWORD m_pid = 0;
+    std::wstring m_mainModuleName;          ///< Имя главного модуля (run.exe, Wow.exe)
+    uintptr_t m_mainModuleBaseAddress = 0;  ///< Кэшированный базовый адрес главного модуля
 };

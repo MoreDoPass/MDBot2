@@ -180,7 +180,7 @@ void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData,
     // Имя файла для ОТЛАДОЧНОЙ геометрии NavMesh'а
     const std::string navmeshObjFilename = outputDir + "/" + baseFilename + "_navmesh.obj";
 
-    if (buildAndSaveNavMesh(navmeshFilename, navmeshObjFilename, adtVertices, adtIndices))
+    if (buildAndSaveNavMesh(navmeshFilename, navmeshObjFilename, adtVertices, adtIndices, col, row))
     {
         qCInfo(logNavMeshGenerator) << "Successfully processed ADT chunk for" << QString::fromStdString(baseFilename);
     }
@@ -271,7 +271,8 @@ bool NavMeshGenerator::saveNavMeshToObj(const std::string& filepath, const rcPol
 
 bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& navMeshFilePath,
                                                     const std::string& navMeshObjFilePath,
-                                                    const std::vector<float>& vertices, const std::vector<int>& indices)
+                                                    const std::vector<float>& vertices, const std::vector<int>& indices,
+                                                    int tx, int ty)
 {
     // 1. Проверяем, есть ли у нас геометрия для обработки.
     if (vertices.empty() || indices.empty())
@@ -303,7 +304,7 @@ bool NavMesh::NavMeshGenerator::buildAndSaveNavMesh(const std::string& navMeshFi
     // 4. Вызываем построение NavMesh
     qInfo(logNavMeshGenerator) << "Начинается генерация NavMesh для" << navMeshFilePath.c_str();
 
-    auto buildResultOpt = builder.build(vertices, indices);
+    auto buildResultOpt = builder.build(vertices, indices, tx, ty);
 
     if (!buildResultOpt)
     {

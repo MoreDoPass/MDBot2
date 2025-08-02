@@ -5,6 +5,7 @@
 #include <QString>
 #include "MemoryManager/MemoryManager.h"
 #include "CharacterHook.h"
+#include "core/Utils/Vector.h"  // Добавляем Vector3
 
 /**
  * @brief Категория логирования для Character.
@@ -28,6 +29,14 @@ struct CharacterOffsets
 };
 
 /**
+ * @brief Смещения для глобальных данных относительно базы модуля игры.
+ */
+struct GlobalOffsets
+{
+    const uintptr_t mapId = 0x7D088C;  ///< Статический адрес ID карты
+};
+
+/**
  * @brief Структура для хранения актуальных данных персонажа.
  */
 struct CharacterData
@@ -40,6 +49,7 @@ struct CharacterData
     float posX = 0.0f;
     float posY = 0.0f;
     float posZ = 0.0f;
+    uint32_t mapId = 0;  // Добавляем ID карты
     QString name;
     bool inCombat = false;
     // Добавь другие поля по необходимости
@@ -58,7 +68,21 @@ class Character : public QObject
     void setBaseAddress(uintptr_t address);
     bool updateFromMemory();
 
-    // Геттеры для доступа к данным
+    // --- Новые унифицированные геттеры ---
+
+    /**
+     * @brief Получить текущую позицию персонажа.
+     * @return Vector3 - Координаты (X, Y, Z).
+     */
+    Vector3 GetPosition() const;
+
+    /**
+     * @brief Получить ID текущей карты.
+     * @return uint32_t - ID карты.
+     */
+    uint32_t GetMapId() const;
+
+    // --- Старые геттеры (могут быть полезны для UI) ---
     uint32_t getLevel() const
     {
         return m_data.level;
@@ -78,18 +102,6 @@ class Character : public QObject
     uint32_t getMaxMana() const
     {
         return m_data.maxMana;
-    }
-    float getPosX() const
-    {
-        return m_data.posX;
-    }
-    float getPosY() const
-    {
-        return m_data.posY;
-    }
-    float getPosZ() const
-    {
-        return m_data.posZ;
     }
     bool isInCombat() const
     {
@@ -112,6 +124,7 @@ class Character : public QObject
     MemoryManager* m_memoryManager;
     uintptr_t m_baseAddress = 0;
     CharacterOffsets m_offsets;
+    GlobalOffsets m_globalOffsets;  // Добавляем экземпляр структуры
     CharacterData m_data;
     CharacterHook* m_hook = nullptr;   ///< Хук для получения указателя на структуру персонажа
     void* m_savePtrAddress = nullptr;  ///< Адрес в run.exe для хранения указателя (void*, а не uintptr_t)

@@ -1,0 +1,23 @@
+---
+# This is a .clang-tidy configuration file.
+# It tells clangd which static analysis checks to run.
+# We are disabling all default checks (*) and then re-enabling only the
+# most useful ones to avoid noise.
+
+Checks: >-
+  -*,
+  bugprone-*,
+  cppcoreguidelines-*,
+  performance-*,
+  portability-*,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-vararg
+
+CheckOptions:
+  # Example of how to configure a check, if needed later.
+  # - key:             readability-identifier-naming.VariableCase
+  #   value:           lower_case
+
+WarningsAsErrors: ''
+HeaderFilterRegex: 'src/'
+FormatStyle: file
