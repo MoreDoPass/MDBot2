@@ -104,7 +104,13 @@ bool NavMeshGenerator::loadMapData(const std::string& mapName, uint32_t mapId,
         }
 
         // Передаем данные в обработчик, БЕЗ mapName
-        processAdtChunk(*adtDataOpt, adtEntry.y, adtEntry.x);
+        // ПЕРЕВОРАЧИВАЕМ КООРДИНАТЫ!
+        // Файловая система WoW (ADT_X_Y) и мировая система координат (World X, Y) инвертированы.
+        // Файловый X (adtEntry.x) на самом деле соответствует мировому Y.
+        // Файловый Y (adtEntry.y) на самом деле соответствует мировому X.
+        // Поэтому мы передаем их в processAdtChunk в "перевернутом" виде.
+
+        processAdtChunk(*adtDataOpt, adtEntry.x, adtEntry.y);
     }
 
     qInfo(logNavMeshGenerator) << "Finished processing all ADTs for map" << QString::fromStdString(mapName);
@@ -123,64 +129,62 @@ void NavMeshGenerator::parseMapDbc(const std::vector<unsigned char>& buffer)
     // TODO: Implement Map.dbc parsing if needed for map names by ID
 }
 
-void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int row, int col)
+void NavMeshGenerator::processAdtChunk(const NavMeshTool::ADT::ADTData& adtData, int col, int row)
 {
-    // Этот метод теперь является "фабрикой" для одного ADT-тайла.
+    // --- ЭТАП 1: СБОР ГЕОМЕТРИИ В КООРДИНАТАХ WoW ---
 
-    // 1. Создаем локальные контейнеры для геометрии этого чанка
-    std::vector<float> adtVertices;
-    std::vector<int> adtIndices;
+    std::vector<float> wowVertices;  // Вершины в системе WoW
+    std::vector<int> wowIndices;     // Индексы для них
 
-    // 2. Последовательно вызываем обработчики, которые наполняют локальные контейнеры
-    m_terrainProcessor.process(adtData, row, col, adtVertices, adtIndices);
-    m_wmoProcessor.process(adtData, m_processedWmoIds, adtVertices, adtIndices);
-    m_m2Processor.process(adtData, m_processedM2Ids, adtVertices, adtIndices);
+    // Наполняем векторы данными из ADT, WMO, M2.
+    // Все эти process'ы должны возвращать геометрию в "перевернутой" системе WoW.
+    m_terrainProcessor.process(adtData, row, col, wowVertices, wowIndices);
+    m_wmoProcessor.process(adtData, m_processedWmoIds, wowVertices, wowIndices);
+    m_m2Processor.process(adtData, m_processedM2Ids, wowVertices, wowIndices);
 
-    // 3. Преобразование системы координат для Recast (Y-вперед -> Y-вверх)
-    // После того как вся геометрия для тайла собрана, мы должны поменять ее
-    // систему координат, чтобы она соответствовала тому, что ожидает Recast.
-    // Recast использует систему, где Y - это "верх". В наших данных Z - это "верх".
-    // Преобразование: (x, y, z) -> (x, z, -y)
-    for (size_t i = 0; i < adtVertices.size(); i += 3)
-    {
-        // adtVertices[i] (координата X) остается без изменений.
-        const float y = adtVertices[i + 1];
-        const float z = adtVertices[i + 2];
-        adtVertices[i + 1] = z;   // Новая координата Y - это старая Z.
-        adtVertices[i + 2] = -y;  // Новая координата Z - это инвертированная старая Y.
-    }
-
-    // Если после обработки геометрия пуста, нет смысла продолжать
-    if (adtVertices.empty() || adtIndices.empty())
+    if (wowVertices.empty() || wowIndices.empty())
     {
         qCDebug(logNavMeshGenerator) << "ADT at" << row << col << "has no geometry, skipping.";
         return;
     }
 
-    // 4. (Опционально) Сохраняем СЫРУЮ геометрию этого ADT в .obj для отладки
+    // --- ЭТАП 2: СОХРАНЕНИЕ ОТЛАДОЧНОГО .OBJ В КООРДИНАТАХ WoW ---
+    // СОХРАНЯЕМ ROW_COL - ПОТОМУ ЧТО В WoW СИСТЕМЕ ТАЙЛЫ ПЕРЕВЕРНУТЫ - ХЗ ПОЧЕМУ
+    // НЕ УДАЛЯЙ ЭТОТ КОММЕНТАРИЙ ЧТОБЫ НЕ ЗАБЫТЬ!!!  если у нас было 43_12 то в игре это будет 12_43!
     const std::string outputDir = "output/" + std::to_string(m_currentMapId);
     QDir().mkpath(QString::fromStdString(outputDir));
+    const std::string baseFilename = std::to_string(row) + "_" + std::to_string(col);
+    const std::string wowObjFilename = outputDir + "/" + baseFilename + "_wow.obj";
 
-    const std::string baseFilename = std::to_string(col) + "_" + std::to_string(row);
-
-    // Имя файла для СЫРОЙ геометрии
-    const std::string rawObjFilename = outputDir + "/" + baseFilename + ".obj";
-
-    if (saveToObj(rawObjFilename, adtVertices, adtIndices))
+    // Вызываем твой saveToObj с "чистыми" WoW-вершинами.
+    if (saveToObj(wowObjFilename, wowVertices, wowIndices))
     {
-        qCInfo(logNavMeshGenerator) << "Successfully saved ADT geometry to" << QString::fromStdString(rawObjFilename);
-    }
-    else
-    {
-        qCWarning(logNavMeshGenerator) << "Failed to save ADT geometry to" << QString::fromStdString(rawObjFilename);
+        qCInfo(logNavMeshGenerator) << "Successfully saved WoW geometry to" << QString::fromStdString(wowObjFilename);
     }
 
-    // 5. Строим и сохраняем NavMesh для этого ADT
+    // --- ЭТАП 3: ПРЕОБРАЗОВАНИЕ В СИСТЕМУ RECAST ---
+
+    std::vector<float> recastVertices = wowVertices;  // Создаем копию
+
+    // Применяем нашу финальную, правильную формулу: (x, y, z) -> (-y, z, x)
+    for (size_t i = 0; i < recastVertices.size(); i += 3)
+    {
+        const float x_wow = wowVertices[i];
+        const float y_wow = wowVertices[i + 1];
+        const float z_wow = wowVertices[i + 2];
+
+        recastVertices[i] = -y_wow;     // Recast X <- WoW -Y
+        recastVertices[i + 1] = z_wow;  // Recast Y <- WoW  Z
+        recastVertices[i + 2] = x_wow;  // Recast Z <- WoW  X
+    }
+
+    // --- ЭТАП 4: СБОРКА И СОХРАНЕНИЕ NAVMESH ---
+
     const std::string navmeshFilename = outputDir + "/" + baseFilename + ".navmesh";
-    // Имя файла для ОТЛАДОЧНОЙ геометрии NavMesh'а
-    const std::string navmeshObjFilename = outputDir + "/" + baseFilename + "_navmesh.obj";
+    const std::string navmeshObjFilename = outputDir + "/" + baseFilename + "_recast.obj";
 
-    if (buildAndSaveNavMesh(navmeshFilename, navmeshObjFilename, adtVertices, adtIndices, col, row))
+    // Передаем в builder уже преобразованные вершины
+    if (buildAndSaveNavMesh(navmeshFilename, navmeshObjFilename, recastVertices, wowIndices, col, row))
     {
         qCInfo(logNavMeshGenerator) << "Successfully processed ADT chunk for" << QString::fromStdString(baseFilename);
     }

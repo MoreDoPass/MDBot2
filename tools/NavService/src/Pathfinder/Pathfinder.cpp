@@ -25,8 +25,10 @@ std::vector<Vector3> Pathfinder::findPath(dtNavMeshQuery* navQuery, const Vector
                         << QString("(%1, %2, %3)").arg(m_extents.x).arg(m_extents.y).arg(m_extents.z);
 
     dtQueryFilter filter;
-    filter.setIncludeFlags(0xFFFF);
-    filter.setExcludeFlags(0);
+    filter.setIncludeFlags(0xFFFF);  // Включаем все флаги
+    filter.setExcludeFlags(0);       // Ничего не исключаем
+    // Установим веса всех областей в 1.0, чтобы искать по всем
+    for (int i = 0; i < DT_MAX_AREAS; ++i) filter.setAreaCost(i, 1.0f);
 
     dtPolyRef startRef, endRef;
     float startPosArray[3] = {recastStartPos.x, recastStartPos.y, recastStartPos.z};

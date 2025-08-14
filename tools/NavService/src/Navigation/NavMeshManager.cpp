@@ -87,20 +87,6 @@ NavMeshManager::NavMeshData* NavMeshManager::initNavMesh(uint32_t mapId)
     params.maxTiles = WowNavMesh::MAX_TILES;
     params.maxPolys = WowNavMesh::MAX_POLYS;
 
-    // ======================================================================
-    // <<< НАЧАЛО ДИАГНОСТИЧЕСКОГО БЛОКА >>>
-    // ======================================================================
-    qCInfo(navMeshLog) << "--- Debugging dtNavMeshParams before init() for map" << mapId << "---";
-    qCInfo(navMeshLog) << "Origin: (" << params.orig[0] << "," << params.orig[1] << "," << params.orig[2] << ")";
-    qCInfo(navMeshLog) << "Tile Width: " << params.tileWidth;
-    qCInfo(navMeshLog) << "Tile Height: " << params.tileHeight;
-    qCInfo(navMeshLog) << "Max Tiles: " << params.maxTiles;
-    qCInfo(navMeshLog) << "Max Polys: " << params.maxPolys;
-    qCInfo(navMeshLog) << "----------------------------------------------------";
-    // ======================================================================
-    // <<< КОНЕЦ ДИАГНОСТИЧЕСКОГО БЛОКА >>>
-    // ======================================================================
-
     dtStatus status = navMesh->init(&params);  // Сохраняем статус для логов
     if (dtStatusFailed(status))
     {
@@ -166,6 +152,13 @@ void NavMeshManager::loadTilesInArea(uint32_t mapId, NavMeshData* data, int tx, 
     }
 
     dtMeshHeader* header = reinterpret_cast<dtMeshHeader*>(tileData.get());
+    // <<< ДОБАВЬ ЭТОТ ДИАГНОСТИЧЕСКИЙ БЛОК >>>
+    qCDebug(navMeshLog) << "--- Loaded Tile Header ---";
+    qCDebug(navMeshLog) << "Tile Pos (x, y):" << header->x << header->y;
+    qCDebug(navMeshLog) << "Layer/PolyCount:" << header->layer << header->polyCount;
+    qCDebug(navMeshLog) << "BMin:" << header->bmin[0] << header->bmin[1] << header->bmin[2];
+    qCDebug(navMeshLog) << "BMax:" << header->bmax[0] << header->bmax[1] << header->bmax[2];
+    qCDebug(navMeshLog) << "--------------------------";
     if (header->x != tx || header->y != ty)
     {
         qCCritical(navMeshLog) << "NavMesh tile config error: file" << QString::fromStdString(fullPath)

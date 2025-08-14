@@ -37,7 +37,7 @@ class Pathfinder
 
    private:
     // Максимальное количество полигонов в пути. Определяет размер буфера для поиска.
-    static constexpr int MAX_POLYS = 256;
+    static constexpr int MAX_POLYS = 16384;
 
     // Вспомогательные данные для поиска пути, которые могут быть переиспользованы
     // между вызовами для оптимизации, но не хранят специфичное для карты состояние.
@@ -46,5 +46,5 @@ class Pathfinder
     dtPolyRef m_straightPathPolys[MAX_POLYS];
     int m_straightPathCount;
 
-    Vector3 m_extents = {500.0f, 500.0f, 500.0f};  // Область поиска вокруг точки
+    Vector3 m_extents = {500.0f, 55500.0f, 500.0f};  // Область поиска вокруг точки
 };

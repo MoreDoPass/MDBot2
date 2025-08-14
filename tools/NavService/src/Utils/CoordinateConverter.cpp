@@ -2,6 +2,28 @@
 #include "Logger.h"
 #include <cmath>
 
+// Эта версия - основная. Она вызывается публичными функциями.
+Vector3 CoordinateConverter::wowToRecast(const Vector3& wowCoords, float scale)
+{
+    Vector3 recastCoords;
+    recastCoords.x = -wowCoords.y * scale;  // Recast X <- минус WoW Y
+    recastCoords.y = wowCoords.z * scale;   // Recast Y <- WoW Z
+    recastCoords.z = -wowCoords.x * scale;  // Recast Z <- минус WoW X
+    return recastCoords;
+}
+
+// Эта версия - основная.
+Vector3 CoordinateConverter::recastToWow(const Vector3& recastCoords, float scale)
+{
+    Vector3 wowCoords;
+    wowCoords.x = -recastCoords.z / scale;  // WoW X <- минус Recast Z
+    wowCoords.y = -recastCoords.x / scale;  // WoW Y <- минус Recast X
+    wowCoords.z = recastCoords.y / scale;   // WoW Z <- Recast Y
+    return wowCoords;
+}
+
+// --- Удобные обертки, которые просто вызывают основные функции ---
+
 Vector3 CoordinateConverter::wowToRecast(const Vector3& wowCoords)
 {
     return wowToRecast(wowCoords, WOW_TO_RECAST_SCALE);
@@ -11,41 +33,6 @@ Vector3 CoordinateConverter::recastToWow(const Vector3& recastCoords)
 {
     return recastToWow(recastCoords, WOW_TO_RECAST_SCALE);
 }
-
-Vector3 CoordinateConverter::wowToRecast(const Vector3& wowCoords, float scale)
-{
-    // WoW использует правую систему координат: X (восток), Y (север), Z (вверх)
-    // Recast использует левую систему координат: X (восток), Z (север), Y (вверх)
-    // Преобразование: X -> X, Y -> Z, Z -> Y
-
-    Vector3 recastCoords;
-    recastCoords.x = wowCoords.x * scale;
-    recastCoords.y = wowCoords.z * scale;  // Z в WoW становится Y в Recast
-    recastCoords.z = wowCoords.y * scale;  // Y в WoW становится Z в Recast
-
-    qCDebug(navService) << "Преобразование WoW -> Recast:"
-                        << "WoW(" << wowCoords.x << "," << wowCoords.y << "," << wowCoords.z << ")"
-                        << "-> Recast(" << recastCoords.x << "," << recastCoords.y << "," << recastCoords.z << ")";
-
-    return recastCoords;
-}
-
-Vector3 CoordinateConverter::recastToWow(const Vector3& recastCoords, float scale)
-{
-    // Обратное преобразование: X -> X, Z -> Y, Y -> Z
-
-    Vector3 wowCoords;
-    wowCoords.x = recastCoords.x / scale;
-    wowCoords.y = recastCoords.z / scale;  // Z в Recast становится Y в WoW
-    wowCoords.z = recastCoords.y / scale;  // Y в Recast становится Z в WoW
-
-    qCDebug(navService) << "Преобразование Recast -> WoW:"
-                        << "Recast(" << recastCoords.x << "," << recastCoords.y << "," << recastCoords.z << ")"
-                        << "-> WoW(" << wowCoords.x << "," << wowCoords.y << "," << wowCoords.z << ")";
-
-    return wowCoords;
-}
-
 Vector3 CoordinateConverter::wowDirectionToRecast(const Vector3& wowDirection)
 {
     // Для векторов направления применяется то же преобразование

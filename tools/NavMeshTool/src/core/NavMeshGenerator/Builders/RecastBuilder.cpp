@@ -216,6 +216,12 @@ std::optional<BuildResult> RecastBuilder::build(const std::vector<float>& vertic
             qCCritical(logRecastBuilder) << "rcBuildPolyMesh failed.";
             return std::nullopt;
         }
+        // Проходим по всем созданным полигонам и назначаем им стандартный флаг
+        // "проходимый для всех". Без этого фильтр в Pathfinder их не увидит.
+        for (int i = 0; i < pmesh->npolys; ++i)
+        {
+            pmesh->flags[i] = 0x01;  // 0x01 - стандартный флаг "Walkable"
+        }
 
         RecastPolyMeshDetailPtr dmesh(rcAllocPolyMeshDetail());
         if (!dmesh)

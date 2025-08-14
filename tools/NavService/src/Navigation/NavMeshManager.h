@@ -20,7 +20,7 @@ namespace WowNavMesh
 constexpr float ORIGIN[3] = {-17066.666f, 0.0f, -17066.666f};  // ~ -(51200 / 3.0)
 constexpr float TILE_SIZE = 533.33333f;                        // 1600 / 3.0
 constexpr int MAX_TILES = 4096;                                // Максимальное количество тайлов в памяти
-constexpr int MAX_POLYS = 2048;                                // Максимальное количество полигонов на тайл
+constexpr int MAX_POLYS = 16384;                               // Максимальное количество полигонов на тайл
 }  // namespace WowNavMesh
 
 /**
