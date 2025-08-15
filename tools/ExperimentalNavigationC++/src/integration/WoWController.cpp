@@ -1,37 +1,77 @@
 #include "WoWController.h"
 #include "../shared/Logger.h"
-#include <chrono> // Для работы со временем (std::chrono)
-#include <thread> // для std::this_thread::sleep_for
+#include <chrono>     // Для работы со временем (std::chrono)
+#include <thread>     // для std::this_thread::sleep_for
+#include <tlhelp32.h> // <--- Перенесли сюда
+#include <windows.h>  // <--- Перенесли сюда
 
-WoWController::WoWController(DWORD pid, uintptr_t playerXAddr,
-                             uintptr_t playerYAddr, uintptr_t playerZAddr)
-    : m_playerXAddr(playerXAddr), m_playerYAddr(playerYAddr),
-      m_playerZAddr(playerZAddr) {
-  // Создаем экземпляр MemoryReader. Если OpenProcess не удастся,
-  // конструктор MemoryReader бросит исключение.
+namespace {
+std::optional<DWORD> findPidByName(const std::wstring &processName) {
+  PROCESSENTRY32W processInfo;
+  processInfo.dwSize = sizeof(processInfo);
+  HANDLE processesSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL);
+  if (processesSnapshot == INVALID_HANDLE_VALUE)
+    return std::nullopt;
+  Process32FirstW(processesSnapshot, &processInfo);
+  do {
+    if (processName == processInfo.szExeFile) {
+      CloseHandle(processesSnapshot);
+      return processInfo.th32ProcessID;
+    }
+  } while (Process32NextW(processesSnapshot, &processInfo));
+  CloseHandle(processesSnapshot);
+  return std::nullopt;
+}
+} // namespace
+
+WoWController::WoWController(DWORD pid, uintptr_t playerCoordBaseAddr)
+    : m_pid(pid), m_playerCoordBaseAddr(playerCoordBaseAddr) {
   try {
     m_memory = std::make_unique<MemoryReader>(pid);
-    qInfo(lcNav) << "WoWController initialized.";
+    qInfo(lcNav) << "WoWController initialized for PID:" << pid;
   } catch (const std::exception &e) {
     qCritical(lcNav) << "Failed to initialize WoWController:" << e.what();
-    // Перебрасываем исключение дальше, чтобы создатель объекта знал об ошибке
     throw;
+  }
+}
+
+std::unique_ptr<WoWController>
+WoWController::findAndConnect(const std::wstring &processName,
+                              uintptr_t playerCoordBaseAddr) {
+  auto pidOpt = findPidByName(processName);
+  if (!pidOpt) {
+    qWarning(lcNav) << "Process" << QString::fromStdWString(processName)
+                    << "not found.";
+    return nullptr;
+  }
+  try {
+    // Создаем и возвращаем умный указатель
+    return std::make_unique<WoWController>(*pidOpt, playerCoordBaseAddr);
+  } catch (const std::exception &e) {
+    // Конструктор мог выбросить исключение (например, нет прав доступа)
+    qCritical(lcNav) << "Failed to connect to process with PID" << *pidOpt
+                     << ":" << e.what();
+    return nullptr;
   }
 }
 
 std::optional<Vector3> WoWController::getPlayerPosition() {
   try {
     Vector3 pos;
-    // Заметь, мы используем (LPCVOID) для приведения типа, как того требует
-    // функция
-    pos.x = m_memory->readFloat((LPCVOID)m_playerXAddr);
-    pos.y = m_memory->readFloat((LPCVOID)m_playerYAddr);
-    pos.z = m_memory->readFloat((LPCVOID)m_playerZAddr);
+    // Вычисляем адреса на лету!
+    pos.x = m_memory->readFloat((LPCVOID)m_playerCoordBaseAddr);
+    pos.y = m_memory->readFloat((LPCVOID)(m_playerCoordBaseAddr + 4));
+    pos.z = m_memory->readFloat((LPCVOID)(m_playerCoordBaseAddr + 8));
     return pos;
   } catch (const std::exception &e) {
     qWarning(lcNav) << "Failed to get player position:" << e.what();
-    return std::nullopt; // Возвращаем "пустое" значение
+    return std::nullopt;
   }
+}
+
+DWORD WoWController::getPid() const { return m_pid; }
+uintptr_t WoWController::getBaseAddress() const {
+  return m_playerCoordBaseAddr;
 }
 
 void WoWController::executeMove(const Vector3 &target, float distance) {

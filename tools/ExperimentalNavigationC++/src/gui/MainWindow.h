@@ -1,8 +1,12 @@
 #pragma once
 
+#include "core/generator/NavMeshGenerator.h" // Включаем для enum
 #include "core/math/Types.h"
 #include <QMainWindow>
 #include <memory>
+#include <vtkPolyData.h>
+#include <vtkSmartPointer.h>
+
 // #include <vtkKDTree.h>      // Эти два инклюда тут больше не нужны
 // #include <vtkSmartPointer.h>
 
@@ -17,6 +21,9 @@ class QGridLayout;
 class VtkWidget;
 class Pathfinder;
 class NavMeshGenerator; // Оставляем прямое объявление, это хороший стиль
+class WoWController;
+class QGroupBox;    // <-- Новое
+class QRadioButton; // <-- Новое
 
 /**
  * @class MainWindow
@@ -38,8 +45,14 @@ private slots:
   void onFindPath();
   void onRunInWoW();
 
+  /**
+   * @brief Слот, вызываемый при изменении выбора в группе отладки.
+   */
+  void onDebugVoxelViewChanged();
+
 private:
   void setupUi();
+  void updateVoxelVisualization(NavMeshGenerator::VoxelizationStage stage);
 
   // ... указатели на виджеты ...
   VtkWidget *m_vtkWidget = nullptr;
@@ -56,9 +69,21 @@ private:
   QPushButton *m_runInWoWButton = nullptr;
   QLineEdit *m_startLineEdit = nullptr;
   QLineEdit *m_cellSizeLineEdit = nullptr;
+  QLineEdit *m_cellHeightLineEdit = nullptr;
+  QLineEdit *m_agentRadiusLineEdit = nullptr;
   QLineEdit *m_endLineEdit = nullptr;
+  QLineEdit *m_baseAddressLineEdit = nullptr;
   QTextEdit *m_pathOutputTextEdit = nullptr;
   QLabel *m_statusLabel = nullptr;
+
+  // --- Новые виджеты для отладки ---
+  QGroupBox *m_debugViewGroup = nullptr;
+  QRadioButton *m_radioDebugSolid = nullptr;
+  QRadioButton *m_radioDebugFloors = nullptr;
+  QRadioButton *m_radioDebugHeight = nullptr;
+  QRadioButton *m_radioDebugFinal = nullptr;
+
+  std::unique_ptr<WoWController> connectToWoW();
 
   // --- Указатели на наши движки ---
   std::unique_ptr<Pathfinder> m_pathfinder;
@@ -68,4 +93,7 @@ private:
   // std::vector<Vector3d> m_walkablePoints;
   // vtkSmartPointer<vtkKdTree> m_kdTree;
   std::vector<Vector3d> m_currentPath;
+
+  /// @brief Указатель на полигональные данные меша, чтобы не пересоздавать их.
+  vtkSmartPointer<vtkPolyData> m_rawMeshPolyData;
 };

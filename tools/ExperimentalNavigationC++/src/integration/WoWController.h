@@ -4,7 +4,8 @@
 #include <cstdint>  // Для целочисленных типов вроде int32_t
 #include <memory>   // Для std::unique_ptr
 #include <optional> // Для представления опциональных значений
-#include <vector>   // Для std::vector
+#include <string>
+#include <vector> // Для std::vector
 
 // Создадим простую структуру для 3D координат, чтобы не тащить сюда Eigen
 struct Vector3 {
@@ -32,8 +33,11 @@ public:
    * @param playerYAddr Адрес координаты Y.
    * @param playerZAddr Адрес координаты Z.
    */
-  WoWController(DWORD pid, uintptr_t playerXAddr, uintptr_t playerYAddr,
-                uintptr_t playerZAddr);
+  WoWController(DWORD pid, uintptr_t playerCoordBaseAddr);
+
+  static std::unique_ptr<WoWController>
+  findAndConnect(const std::wstring &processName,
+                 uintptr_t playerCoordBaseAddr); // <--- НОВЫЙ МЕТОД
 
   /**
    * @brief Получает текущую позицию игрока.
@@ -52,6 +56,9 @@ public:
   void followPath(const std::vector<Vector3> &pathWaypoints,
                   float arrivalThreshold = 2.5f, float stuckTimeout = 30.0f);
 
+  DWORD getPid() const;
+  uintptr_t getBaseAddress() const;
+
 private:
   /**
    * @brief Записывает команду на движение в память.
@@ -59,12 +66,11 @@ private:
   void executeMove(const Vector3 &target, float distance = 0.3f);
 
   /// @brief Умный указатель на наш объект для работы с памятью.
+  DWORD m_pid; // <--- Будем хранить PID
   std::unique_ptr<MemoryReader> m_memory;
 
-  // --- Динамические адреса игрока ---
-  uintptr_t m_playerXAddr;
-  uintptr_t m_playerYAddr;
-  uintptr_t m_playerZAddr;
+  // адрес игрока
+  uintptr_t m_playerCoordBaseAddr; // <--- ИЗМЕНЕН
 
   // --- Статические адреса для CTM ---
   const uintptr_t CTM_DISTANCE = 0xCA11E4;

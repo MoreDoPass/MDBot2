@@ -1,55 +1,33 @@
 #include "VtkWidget.h"
 #include "shared/Logger.h"
 
-// Основные заголовочные файлы VTK, которые нам нужны
-#include <vtkActor.h> // Представляет объект на сцене
-#include <vtkCellArray.h> // Контейнер для описания "клеток" (вершин, линий, полигонов)
+#include <vtkActor.h>
 #include <vtkCellArray.h>
 #include <vtkGenericOpenGLRenderWindow.h>
-#include <vtkGenericRenderWindowInteractor.h>
 #include <vtkLine.h>
-#include <vtkNew.h> // <--- Нужен для vtkNew
 #include <vtkNew.h>
-#include <vtkPoints.h> // Контейнер для хранения 3D-точек
-#include <vtkPolyData.h> // Объект для представления геометрии (в нашем случае - точек)
-#include <vtkPolyDataMapper.h> // Преобразует геометрию в графические примитивы
+#include <vtkPoints.h>
+#include <vtkPolyData.h>
+#include <vtkPolyDataMapper.h>
 #include <vtkPolyLine.h>
-#include <vtkProperty.h> // Свойства актора (цвет, размер и т.д.)
+#include <vtkProperty.h>
 #include <vtkRenderWindow.h>
 #include <vtkRendererCollection.h>
 
-// Заголовки Qt
 #include <QVBoxLayout>
 
 VtkWidget::VtkWidget(QWidget *parent) : QFrame(parent) {
-  // 1. Создаем окно рендеринга
   vtkNew<vtkGenericOpenGLRenderWindow> renderWindow;
-
-  // 2. Создаем наш главный виджет Qt
   m_vtkWidget = new QVTKOpenGLNativeWidget(this);
   m_vtkWidget->setRenderWindow(renderWindow);
 
-  // --- ИСПРАВЛЕНИЕ ---
-  // Мы не полагаемся на рендерер по умолчанию.
-  // Мы создаем его сами и добавляем в окно.
-
-  // 3. Создаем новый экземпляр рендерера (сцены)
   vtkNew<vtkRenderer> renderer;
-  renderer->SetBackground(0.2, 0.3, 0.4); // Задаем фон здесь
-
-  // 4. Добавляем наш рендерер в окно рендеринга
+  renderer->SetBackground(0.2, 0.3, 0.4);
   m_vtkWidget->renderWindow()->AddRenderer(renderer);
+  m_renderer = renderer.Get();
 
-  // 5. Сохраняем указатель на наш рендерер
-  m_renderer =
-      renderer.Get(); // .Get() извлекает обычный указатель из умного vtkNew
-
-  // -------------------
-
-  // 6. Инициализируем интерактор (управление камерой)
   m_vtkWidget->interactor()->Initialize();
 
-  // Настраиваем лэйаут
   auto *layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
   layout->addWidget(m_vtkWidget);
@@ -62,100 +40,108 @@ VtkWidget::~VtkWidget() { qInfo(lcApp) << "VtkWidget destroyed."; }
 void VtkWidget::clear() {
   if (!m_renderer)
     return;
-  qInfo(lcCore) << "Clearing VTK scene.";
+  qInfo(lcCore) << "Clearing entire VTK scene.";
   m_renderer->RemoveAllViewProps();
+  m_meshActor = nullptr;
+  m_pointsActor = nullptr;
+  m_pathActor = nullptr;
+  m_graphActor = nullptr;
   m_vtkWidget->renderWindow()->Render();
+}
+
+void VtkWidget::clearPoints() {
+  if (m_renderer && m_pointsActor) {
+    m_renderer->RemoveActor(m_pointsActor);
+    m_pointsActor = nullptr;
+    m_vtkWidget->renderWindow()->Render();
+  }
+}
+
+void VtkWidget::clearPath() {
+  if (m_renderer && m_pathActor) {
+    m_renderer->RemoveActor(m_pathActor);
+    m_pathActor = nullptr;
+    m_vtkWidget->renderWindow()->Render();
+  }
 }
 
 void VtkWidget::addPoints(const std::vector<Vector3d> &points,
                           const double color[3], float pointSize) {
+  // Сначала удаляем старое облако точек, если оно было
+  clearPoints();
+
   if (points.empty()) {
-    qWarning(lcCore) << "addPoints called with empty point set.";
+    qWarning(lcCore)
+        << "addPoints called with empty point set. Points cleared.";
     return;
   }
 
   qInfo(lcCore) << "Adding" << points.size() << "points to the scene.";
 
-  // --- Шаг 1: Создаем геометрию ---
-
-  // Создаем умный указатель на объект для хранения координат
   vtkNew<vtkPoints> vtk_points;
-  // Создаем умный указатель на объект для хранения "вершин"
-  // Каждая точка в нашем облаке - это одна вершина.
   vtkNew<vtkCellArray> vtk_vertices;
 
-  // Проходимся по всем точкам из нашего вектора
   for (const auto &point : points) {
-    // Добавляем координаты в vtkPoints и получаем ID этой точки
     vtkIdType pointId =
         vtk_points->InsertNextPoint(point.x(), point.y(), point.z());
-    // Говорим vtk_vertices: "создай новую вершину, используя одну точку с ID =
-    // pointId"
     vtk_vertices->InsertNextCell(1, &pointId);
   }
 
-  // Создаем главный объект vtkPolyData - "полигональные данные"
   vtkNew<vtkPolyData> polyData;
-  // Устанавливаем в него наши наборы координат и вершин
   polyData->SetPoints(vtk_points);
   polyData->SetVerts(vtk_vertices);
 
-  // --- Шаг 2: Создаем Mapper ---
   vtkNew<vtkPolyDataMapper> mapper;
-  mapper->SetInputData(polyData); // Говорим мапперу, какие данные использовать
+  mapper->SetInputData(polyData);
 
-  // --- Шаг 3: Создаем Actor ---
-  vtkNew<vtkActor> actor;
-  actor->SetMapper(mapper); // Подключаем к актору наш маппер
+  // Создаем нового актора и сохраняем его
+  m_pointsActor = vtkSmartPointer<vtkActor>::New();
+  m_pointsActor->SetMapper(mapper);
 
-  // Настраиваем свойства отображения (цвет, размер)
-  actor->GetProperty()->SetPointSize(pointSize);
+  m_pointsActor->GetProperty()->SetPointSize(pointSize);
   if (color) {
-    actor->GetProperty()->SetColor(color[0], color[1], color[2]);
+    m_pointsActor->GetProperty()->SetColor(color[0], color[1], color[2]);
   } else {
-    // Цвет по умолчанию - ярко-зеленый
-    actor->GetProperty()->SetColor(0.0, 1.0, 0.0);
+    m_pointsActor->GetProperty()->SetColor(0.0, 1.0, 0.0);
   }
 
-  // Наконец, добавляем наш Actor на сцену (рендерер)
-  m_renderer->AddActor(actor);
-  // Сбрасываем камеру, чтобы все точки были видны
-  m_renderer->ResetCamera();
-  // Перерисовываем окно, чтобы увидеть изменения
+  m_renderer->AddActor(m_pointsActor);
   m_vtkWidget->renderWindow()->Render();
 }
 
 void VtkWidget::addMesh(vtkPolyData *polyData, const double color[3],
                         double opacity) {
+  if (m_meshActor) {
+    m_renderer->RemoveActor(m_meshActor);
+  }
+
   if (!polyData) {
     qWarning(lcCore) << "addMesh called with null polyData.";
     return;
   }
-
   qInfo(lcCore) << "Adding mesh to the scene...";
 
-  // Создаем Mapper и Actor, как и для точек
   vtkNew<vtkPolyDataMapper> mapper;
   mapper->SetInputData(polyData);
 
-  vtkNew<vtkActor> actor;
-  actor->SetMapper(mapper);
+  m_meshActor = vtkSmartPointer<vtkActor>::New();
+  m_meshActor->SetMapper(mapper);
 
-  // Настраиваем свойства
-  actor->GetProperty()->SetOpacity(opacity);
+  m_meshActor->GetProperty()->SetOpacity(opacity);
   if (color) {
-    actor->GetProperty()->SetColor(color[0], color[1], color[2]);
+    m_meshActor->GetProperty()->SetColor(color[0], color[1], color[2]);
   } else {
-    // Цвет по умолчанию - светло-серый
-    actor->GetProperty()->SetColor(0.8, 0.8, 0.8);
+    m_meshActor->GetProperty()->SetColor(0.8, 0.8, 0.8);
   }
 
-  m_renderer->AddActor(actor);
-  // Камеру здесь не сбрасываем, сделаем это после добавления точек.
+  m_renderer->AddActor(m_meshActor);
   m_vtkWidget->renderWindow()->Render();
 }
 
 void VtkWidget::addPath(const std::vector<Vector3d> &pathPoints) {
+  // Удаляем старый путь
+  clearPath();
+
   if (pathPoints.size() < 2)
     return;
 
@@ -180,13 +166,12 @@ void VtkWidget::addPath(const std::vector<Vector3d> &pathPoints) {
   vtkNew<vtkPolyDataMapper> mapper;
   mapper->SetInputData(polyData);
 
-  vtkNew<vtkActor> actor;
-  actor->SetMapper(mapper);
-  actor->GetProperty()->SetColor(1.0, 0.0, 0.0); // Красный
-  actor->GetProperty()->SetLineWidth(4.0);
+  m_pathActor = vtkSmartPointer<vtkActor>::New();
+  m_pathActor->SetMapper(mapper);
+  m_pathActor->GetProperty()->SetColor(1.0, 0.0, 0.0); // Красный
+  m_pathActor->GetProperty()->SetLineWidth(4.0);
 
-  // Добавляем актор с именем "path", чтобы можно было его удалить
-  m_renderer->AddActor(actor);
+  m_renderer->AddActor(m_pathActor);
   m_vtkWidget->renderWindow()->Render();
 }
 
@@ -202,23 +187,22 @@ void VtkWidget::resetCamera() {
 
 void VtkWidget::addGraphEdges(const std::vector<Vector3d> &nodes,
                               const AdjacencyList &adj) {
+  if (m_graphActor) {
+    m_renderer->RemoveActor(m_graphActor);
+  }
   if (nodes.empty())
     return;
 
   vtkNew<vtkPoints> points;
   vtkNew<vtkCellArray> lines;
 
-  // Сначала добавляем все узлы как точки в vtkPoints
   for (const auto &node : nodes) {
     points->InsertNextPoint(node.x(), node.y(), node.z());
   }
 
-  // Теперь создаем линии (ребра)
   for (size_t i = 0; i < adj.size(); ++i) {
     for (int neighborId : adj[i]) {
-      // Чтобы не рисовать каждое ребро дважды, рисуем только если i <
-      // neighborId
-      if (i < neighborId) {
+      if (i < (size_t)neighborId) {
         vtkNew<vtkLine> line;
         line->GetPointIds()->SetId(0, i);
         line->GetPointIds()->SetId(1, neighborId);
@@ -234,12 +218,12 @@ void VtkWidget::addGraphEdges(const std::vector<Vector3d> &nodes,
   vtkNew<vtkPolyDataMapper> mapper;
   mapper->SetInputData(polyData);
 
-  vtkNew<vtkActor> actor;
-  actor->SetMapper(mapper);
-  actor->GetProperty()->SetColor(0.2, 0.2, 1.0); // Синий
-  actor->GetProperty()->SetLineWidth(1.0);
-  actor->GetProperty()->SetOpacity(0.5); // Полупрозрачный
+  m_graphActor = vtkSmartPointer<vtkActor>::New();
+  m_graphActor->SetMapper(mapper);
+  m_graphActor->GetProperty()->SetColor(0.2, 0.2, 1.0);
+  m_graphActor->GetProperty()->SetLineWidth(1.0);
+  m_graphActor->GetProperty()->SetOpacity(0.5);
 
-  m_renderer->AddActor(actor);
+  m_renderer->AddActor(m_graphActor);
   m_vtkWidget->renderWindow()->Render();
 }

@@ -1,22 +1,6 @@
 #include "NavMeshGenerator.h"
 #include "shared/Logger.h"
-#include <algorithm>
-#include <cmath>
 #include <limits>
-
-namespace {
-bool triBoxOverlap(const Vector3d &boxcenter, const Vector3d &boxhalfsize,
-                   const Vector3d &tv0, const Vector3d &tv1,
-                   const Vector3d &tv2) {
-  Vector3d tri_min = tv0.cwiseMin(tv1).cwiseMin(tv2);
-  Vector3d tri_max = tv0.cwiseMax(tv1).cwiseMax(tv2);
-  Vector3d box_min = boxcenter - boxhalfsize;
-  Vector3d box_max = boxcenter + boxhalfsize;
-  return (box_min.x() <= tri_max.x() && box_max.x() >= tri_min.x()) &&
-         (box_min.y() <= tri_max.y() && box_max.y() >= tri_min.y()) &&
-         (box_min.z() <= tri_max.z() && box_max.z() >= tri_min.z());
-}
-} // namespace
 
 NavMeshGenerator::NavMeshGenerator(const NavMeshConfig &config)
     : m_config(config) {
@@ -25,23 +9,63 @@ NavMeshGenerator::NavMeshGenerator(const NavMeshConfig &config)
 
 bool NavMeshGenerator::build(const MeshData &meshData,
                              const ProgressCallback &progressCallback) {
-  if (meshData.vertices.empty() || meshData.indices.empty()) {
-    qWarning(lcCore) << "Cannot build NavMesh, mesh data is empty.";
+  qInfo(lcCore) << "NavMesh generation started (Full 3D Voxel Pipeline)...";
+  m_debugGrids.clear(); // Очищаем старые отладочные данные
+
+  if (meshData.vertices.empty()) {
+    qWarning(lcCore) << "MeshData is empty. Aborting build.";
     return false;
   }
-  qInfo(lcCore) << "NavMesh generation started...";
 
-  // Этап 1: Вокселизация
   calculateBounds(meshData.vertices);
-  createSolidVoxels(meshData, progressCallback);
 
-  // Этап 2: Построение карты высот
-  buildHeightfield();
+  // --- ЭТАП 1: Создаем "сырую" карту ВСЕХ препятствий ---
+  VoxelGrid solidGrid = Voxelizer::createSolidVoxels(
+      meshData, m_config.cellSize, m_config.cellHeight, m_boundsMin,
+      m_boundsMax);
+  m_debugGrids[VoxelizationStage::Solid] = solidGrid; // Сохраняем для отладки
 
-  // Следующие этапы будут здесь. Пока что мы останавливаемся на этом.
+  if (solidGrid.solidVoxels.empty()) {
+    qWarning(lcCore)
+        << "Solid voxel grid is empty after stage 1. No geometry found?";
+    return false;
+  }
+
+  // --- ЭТАП 2: Находим все возможные полы ---
+  VoxelGrid floorGrid = Voxelizer::filterWalkableFloors(solidGrid);
+  m_debugGrids[VoxelizationStage::WalkableFloors] =
+      floorGrid; // Сохраняем для отладки
+
+  // --- ЭТАП 3: Фильтруем полы по высоте агента ---
+  VoxelGrid heightFilteredGrid = Voxelizer::filterByAgentHeight(
+      floorGrid, solidGrid, m_config.agentHeight, m_config.cellHeight);
+  m_debugGrids[VoxelizationStage::HeightFiltered] =
+      heightFilteredGrid; // Сохраняем для отладки
+
+  // --- ЭТАП 4: Фильтруем по радиусу агента ---
+  m_finalVoxelGrid = Voxelizer::filterByAgentRadius(
+      heightFilteredGrid, solidGrid, m_config.agentRadius, m_config.cellSize);
+  m_debugGrids[VoxelizationStage::FinalWalkable] =
+      m_finalVoxelGrid; // Сохраняем для отладки
+
   qInfo(lcCore)
-      << "Initial generation steps (Voxelization, Heightfield) are complete.";
+      << "NavMesh generation pipeline complete. Walkable grid is ready.";
   return true;
+}
+
+const VoxelGrid &
+NavMeshGenerator::getDebugVoxelGrid(VoxelizationStage stage) const {
+  // Ищем сетку в карте. Если не найдена, возвращаем пустую.
+  auto it = m_debugGrids.find(stage);
+  if (it != m_debugGrids.end()) {
+    return it->second;
+  }
+  // Этот статический экземпляр будет возвращен, если ничего не найдено.
+  // Это безопаснее, чем выбрасывать исключение или возвращать висячую ссылку.
+  static const VoxelGrid emptyGrid;
+  qWarning(lcCore)
+      << "Requested debug voxel grid for a stage that was not found.";
+  return emptyGrid;
 }
 
 void NavMeshGenerator::calculateBounds(const std::vector<Vector3d> &vertices) {
@@ -53,198 +77,22 @@ void NavMeshGenerator::calculateBounds(const std::vector<Vector3d> &vertices) {
     m_boundsMin = m_boundsMin.cwiseMin(v);
     m_boundsMax = m_boundsMax.cwiseMax(v);
   }
-  m_gridWidth = static_cast<int>((m_boundsMax.x() - m_boundsMin.x()) /
-                                 m_config.cellSize) +
-                1;
-  m_gridDepth = static_cast<int>((m_boundsMax.y() - m_boundsMin.y()) /
-                                 m_config.cellSize) +
-                1;
-  m_gridHeight = static_cast<int>((m_boundsMax.z() - m_boundsMin.z()) /
-                                  m_config.cellHeight) +
-                 1;
-
-  m_config.gridWidth = m_gridWidth;
-  m_config.gridDepth = m_gridDepth;
-
-  qInfo(lcCore) << "Calculated bounds: Min(" << m_boundsMin.x()
-                << m_boundsMin.y() << m_boundsMin.z() << "), Max("
-                << m_boundsMax.x() << m_boundsMax.y() << m_boundsMax.z() << ")";
-  qInfo(lcCore) << "Voxel grid dimensions (Width/X, Depth/Y, Height/Z):"
-                << m_gridWidth << "x" << m_gridDepth << "x" << m_gridHeight;
 }
-
-void NavMeshGenerator::createSolidVoxels(
-    const MeshData &meshData, const ProgressCallback &progressCallback) {
-  qInfo(lcCore) << "Creating solid voxels...";
-  size_t totalVoxels = (size_t)m_gridWidth * m_gridHeight * m_gridDepth;
-  m_solidVoxels.assign(totalVoxels, false);
-  const Vector3d boxhalfsize(m_config.cellSize / 2.0, m_config.cellSize / 2.0,
-                             m_config.cellHeight / 2.0);
-  int solid_count = 0;
-  const size_t totalTriangles = meshData.indices.size();
-  size_t processedTriangles = 0;
-  int lastReportedProgress = -1;
-
-  for (const auto &tri_indices : meshData.indices) {
-    processedTriangles++;
-    if (progressCallback && totalTriangles > 0) {
-      int progress =
-          static_cast<int>((processedTriangles * 100) / totalTriangles);
-      if (progress > lastReportedProgress) {
-        lastReportedProgress = progress;
-        progressCallback(progress);
-      }
-    }
-    const Vector3d &v0 = meshData.vertices[tri_indices[0]];
-    const Vector3d &v1 = meshData.vertices[tri_indices[1]];
-    const Vector3d &v2 = meshData.vertices[tri_indices[2]];
-    Vector3d tri_min = v0.cwiseMin(v1).cwiseMin(v2);
-    Vector3d tri_max = v0.cwiseMax(v1).cwiseMax(v2);
-    int min_x = static_cast<int>(
-        floor((tri_min.x() - m_boundsMin.x()) / m_config.cellSize));
-    int max_x = static_cast<int>(
-        ceil((tri_max.x() - m_boundsMin.x()) / m_config.cellSize));
-    int min_z = static_cast<int>(
-        floor((tri_min.y() - m_boundsMin.y()) / m_config.cellSize));
-    int max_z = static_cast<int>(
-        ceil((tri_max.y() - m_boundsMin.y()) / m_config.cellSize));
-    int min_y = static_cast<int>(
-        floor((tri_min.z() - m_boundsMin.z()) / m_config.cellHeight));
-    int max_y = static_cast<int>(
-        ceil((tri_max.z() - m_boundsMin.z()) / m_config.cellHeight));
-
-    for (int y_idx = min_y; y_idx <= max_y; ++y_idx) {
-      for (int z_idx = min_z; z_idx <= max_z; ++z_idx) {
-        for (int x_idx = min_x; x_idx <= max_x; ++x_idx) {
-          if (x_idx < 0 || x_idx >= m_gridWidth || y_idx < 0 ||
-              y_idx >= m_gridHeight || z_idx < 0 || z_idx >= m_gridDepth)
-            continue;
-          size_t index = x_idx + z_idx * m_gridWidth +
-                         y_idx * (size_t)m_gridWidth * m_gridDepth;
-          if (m_solidVoxels[index])
-            continue;
-          Vector3d boxcenter = {
-              m_boundsMin.x() + (x_idx + 0.5) * m_config.cellSize,
-              m_boundsMin.y() + (z_idx + 0.5) * m_config.cellSize,
-              m_boundsMin.z() + (y_idx + 0.5) * m_config.cellHeight};
-          if (triBoxOverlap(boxcenter, boxhalfsize, v0, v1, v2)) {
-            m_solidVoxels[index] = true;
-            solid_count++;
-          }
-        }
-      }
-    }
-  }
-  qInfo(lcCore) << "Solid voxelization complete. Found" << solid_count
-                << "solid voxels.";
-}
-
-void NavMeshGenerator::buildHeightfield() {
-  qInfo(lcCore) << "Building heightfield...";
-  m_heightfield.assign((size_t)m_gridWidth * m_gridDepth, {});
-  for (int z_idx = 0; z_idx < m_gridDepth; ++z_idx) {
-    for (int x_idx = 0; x_idx < m_gridWidth; ++x_idx) {
-      bool is_solid_under = true;
-      for (int y_idx = 0; y_idx < m_gridHeight; ++y_idx) {
-        size_t index = x_idx + z_idx * m_gridWidth +
-                       y_idx * (size_t)m_gridWidth * m_gridDepth;
-        bool is_solid_now = m_solidVoxels[index];
-        if (is_solid_under && !is_solid_now) {
-          // Нашли пол!
-          HeightfieldSpan span;
-          span.min = y_idx;
-          span.max = y_idx;
-          while (y_idx + 1 < m_gridHeight) {
-            size_t next_index = x_idx + z_idx * m_gridWidth +
-                                (y_idx + 1) * (size_t)m_gridWidth * m_gridDepth;
-            if (m_solidVoxels[next_index]) {
-              break;
-            }
-            y_idx++;
-            span.max = y_idx;
-          }
-          int height_in_voxels = span.max - span.min + 1;
-          if (height_in_voxels * m_config.cellHeight >= m_config.agentHeight) {
-            m_heightfield[x_idx + z_idx * m_gridWidth].push_back(span);
-          }
-        }
-        is_solid_under = is_solid_now;
-      }
-    }
-  }
-  size_t totalSpans = 0;
-  for (const auto &col : m_heightfield)
-    totalSpans += col.size();
-  qInfo(lcCore) << "Heightfield built. Found" << totalSpans
-                << "walkable spans.";
-}
-
-std::vector<Vector3d> NavMeshGenerator::getWalkableVoxelCenters() const {
-  std::vector<Vector3d> centers;
-  if (m_heightfield.empty())
-    return centers;
-  for (int z_idx = 0; z_idx < m_gridDepth; ++z_idx) {
-    for (int x_idx = 0; x_idx < m_gridWidth; ++x_idx) {
-      const size_t columnIndex = x_idx + z_idx * m_gridWidth;
-      for (const auto &span : m_heightfield[columnIndex]) {
-        centers.push_back(
-            {m_boundsMin.x() + (x_idx + 0.5) * m_config.cellSize,
-             m_boundsMin.y() + (z_idx + 0.5) * m_config.cellSize,
-             m_boundsMin.z() + (span.min + 0.5) * m_config.cellHeight});
-      }
-    }
-  }
-  return centers;
-}
-
-// --- РЕАЛИЗАЦИЯ УТИЛИТ ДЛЯ БУДУЩЕГО PATHFINDER ---
 
 bool NavMeshGenerator::worldToGrid(const Vector3d &worldPos, int &gridX,
-                                   int &gridZ) const {
+                                   int &gridY, int &gridZ) const {
+  if (m_finalVoxelGrid.gridWidth == 0)
+    return false;
   gridX = static_cast<int>(
       floor((worldPos.x() - m_boundsMin.x()) / m_config.cellSize));
   gridZ = static_cast<int>(
       floor((worldPos.y() - m_boundsMin.y()) / m_config.cellSize));
-  return gridX >= 0 && gridX < m_gridWidth && gridZ >= 0 && gridZ < m_gridDepth;
-}
+  gridY = static_cast<int>(
+      floor((worldPos.z() - m_boundsMin.z()) / m_config.cellHeight));
 
-bool NavMeshGenerator::findClosestWalkableVoxel(const Vector3d &worldPos,
-                                                int &outX, int &outY,
-                                                int &outZ) const {
-  int gridX, gridZ_coord;
-  if (!worldToGrid(worldPos, gridX, gridZ_coord))
-    return false;
-
-  double minDistSq = std::numeric_limits<double>::max();
-  bool found = false;
-
-  for (int z = -5; z <= 5; ++z) {
-    for (int x = -5; x <= 5; ++x) {
-      int currentX = gridX + x;
-      int currentZ = gridZ_coord + z;
-      if (currentX < 0 || currentX >= m_gridWidth || currentZ < 0 ||
-          currentZ >= m_gridDepth)
-        continue;
-      const auto &spans = m_heightfield[currentX + currentZ * m_gridWidth];
-      if (spans.empty())
-        continue;
-      for (const auto &span : spans) {
-        double spanHeight =
-            m_boundsMin.z() + (span.min + 0.5) * m_config.cellHeight;
-        double distSq = std::pow(currentX - gridX, 2) +
-                        std::pow(currentZ - gridZ_coord, 2) +
-                        std::pow(spanHeight - worldPos.z(), 2);
-        if (distSq < minDistSq) {
-          minDistSq = distSq;
-          outX = currentX;
-          outY = span.min;
-          outZ = currentZ;
-          found = true;
-        }
-      }
-    }
-  }
-  return found;
+  return gridX >= 0 && gridX < m_finalVoxelGrid.gridWidth && gridY >= 0 &&
+         gridY < m_finalVoxelGrid.gridHeight && gridZ >= 0 &&
+         gridZ < m_finalVoxelGrid.gridDepth;
 }
 
 Vector3d NavMeshGenerator::gridToWorld(int gridX, int gridY, int gridZ) const {
@@ -253,22 +101,57 @@ Vector3d NavMeshGenerator::gridToWorld(int gridX, int gridY, int gridZ) const {
           m_boundsMin.z() + (gridY + 0.5) * m_config.cellHeight};
 }
 
-bool NavMeshGenerator::isWalkable(int startX, int startZ, int startY_idx,
-                                  int endX, int endZ, int &endY_idx) const {
-  if (endX < 0 || endX >= m_gridWidth || endZ < 0 || endZ >= m_gridDepth)
+bool NavMeshGenerator::isWalkable(int x, int y, int z) const {
+  if (x < 0 || x >= m_finalVoxelGrid.gridWidth || y < 0 ||
+      y >= m_finalVoxelGrid.gridHeight || z < 0 ||
+      z >= m_finalVoxelGrid.gridDepth) {
     return false;
-  const auto &endSpans = m_heightfield[endX + endZ * m_gridWidth];
-  if (endSpans.empty())
+  }
+  size_t index = m_finalVoxelGrid.getVoxelIndex(x, y, z);
+  return m_finalVoxelGrid.solidVoxels[index];
+}
+
+bool NavMeshGenerator::findClosestWalkableVoxel(const Vector3d &worldPos,
+                                                int &outX, int &outY,
+                                                int &outZ) const {
+  int initialX, initialY, initialZ;
+  if (!worldToGrid(worldPos, initialX, initialY, initialZ)) {
+    qWarning(lcCore)
+        << "Start/end position is outside the generated navmesh bounds.";
     return false;
-  const double startHeight =
-      m_boundsMin.z() + (startY_idx + 0.5) * m_config.cellHeight;
-  for (const auto &span : endSpans) {
-    const double endHeight =
-        m_boundsMin.z() + (span.min + 0.5) * m_config.cellHeight;
-    if (std::abs(startHeight - endHeight) < m_config.agentMaxClimb) {
-      endY_idx = span.min;
-      return true;
+  }
+
+  if (isWalkable(initialX, initialY, initialZ)) {
+    outX = initialX;
+    outY = initialY;
+    outZ = initialZ;
+    return true;
+  }
+
+  const int maxSearchRadius = 50;
+  for (int radius = 1; radius < maxSearchRadius; ++radius) {
+    for (int y = -radius; y <= radius; ++y) {
+      for (int z = -radius; z <= radius; ++z) {
+        for (int x = -radius; x <= radius; ++x) {
+          if (abs(x) != radius && abs(y) != radius && abs(z) != radius)
+            continue;
+          int checkX = initialX + x;
+          int checkY = initialY + y;
+          int checkZ = initialZ + z;
+          if (isWalkable(checkX, checkY, checkZ)) {
+            outX = checkX;
+            outY = checkY;
+            outZ = checkZ;
+            qInfo(lcCore) << "Found closest walkable voxel at offset (" << x
+                          << "," << y << "," << z << ")";
+            return true;
+          }
+        }
+      }
     }
   }
+
+  qWarning(lcCore) << "Could not find any walkable voxel within radius"
+                   << maxSearchRadius;
   return false;
 }
