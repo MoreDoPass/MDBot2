@@ -4,18 +4,22 @@
 #include <vtkActor.h>
 #include <vtkCellArray.h>
 #include <vtkGenericOpenGLRenderWindow.h>
-#include <vtkLine.h>
+#include <vtkLineSource.h>
 #include <vtkNew.h>
+#include <vtkPointData.h> // <-- Нужно для привязки цветов
 #include <vtkPoints.h>
 #include <vtkPolyData.h>
 #include <vtkPolyDataMapper.h>
 #include <vtkPolyLine.h>
 #include <vtkProperty.h>
 #include <vtkRenderWindow.h>
-#include <vtkRendererCollection.h>
+#include <vtkRenderer.h>
+#include <vtkUnsignedCharArray.h> // <-- Специальный массив VTK для цветов
+
 
 #include <QVBoxLayout>
 
+// ... конструктор и деструктор без изменений ...
 VtkWidget::VtkWidget(QWidget *parent) : QFrame(parent) {
   vtkNew<vtkGenericOpenGLRenderWindow> renderWindow;
   m_vtkWidget = new QVTKOpenGLNativeWidget(this);
@@ -37,6 +41,7 @@ VtkWidget::VtkWidget(QWidget *parent) : QFrame(parent) {
 
 VtkWidget::~VtkWidget() { qInfo(lcApp) << "VtkWidget destroyed."; }
 
+// ... clear, clearPoints, clearPath без изменений ...
 void VtkWidget::clear() {
   if (!m_renderer)
     return;
@@ -45,8 +50,16 @@ void VtkWidget::clear() {
   m_meshActor = nullptr;
   m_pointsActor = nullptr;
   m_pathActor = nullptr;
-  m_graphActor = nullptr;
+  m_rayActor = nullptr; // <--- ДОБАВЛЕНО
   m_vtkWidget->renderWindow()->Render();
+}
+
+void VtkWidget::clearRay() {
+  if (m_renderer && m_rayActor) {
+    m_renderer->RemoveActor(m_rayActor);
+    m_rayActor = nullptr;
+    m_vtkWidget->renderWindow()->Render();
+  }
 }
 
 void VtkWidget::clearPoints() {
@@ -65,28 +78,24 @@ void VtkWidget::clearPath() {
   }
 }
 
+// ... старая версия addPoints без изменений ...
 void VtkWidget::addPoints(const std::vector<Vector3d> &points,
                           const double color[3], float pointSize) {
-  // Сначала удаляем старое облако точек, если оно было
   clearPoints();
-
   if (points.empty()) {
     qWarning(lcCore)
         << "addPoints called with empty point set. Points cleared.";
     return;
   }
-
   qInfo(lcCore) << "Adding" << points.size() << "points to the scene.";
 
   vtkNew<vtkPoints> vtk_points;
   vtkNew<vtkCellArray> vtk_vertices;
-
   for (const auto &point : points) {
     vtkIdType pointId =
         vtk_points->InsertNextPoint(point.x(), point.y(), point.z());
     vtk_vertices->InsertNextCell(1, &pointId);
   }
-
   vtkNew<vtkPolyData> polyData;
   polyData->SetPoints(vtk_points);
   polyData->SetVerts(vtk_vertices);
@@ -94,21 +103,76 @@ void VtkWidget::addPoints(const std::vector<Vector3d> &points,
   vtkNew<vtkPolyDataMapper> mapper;
   mapper->SetInputData(polyData);
 
-  // Создаем нового актора и сохраняем его
   m_pointsActor = vtkSmartPointer<vtkActor>::New();
   m_pointsActor->SetMapper(mapper);
-
   m_pointsActor->GetProperty()->SetPointSize(pointSize);
   if (color) {
     m_pointsActor->GetProperty()->SetColor(color[0], color[1], color[2]);
   } else {
     m_pointsActor->GetProperty()->SetColor(0.0, 1.0, 0.0);
   }
+  m_renderer->AddActor(m_pointsActor);
+  m_vtkWidget->renderWindow()->Render();
+}
+
+// --- РЕАЛИЗАЦИЯ НОВОЙ ВЕРСИИ ADDPOINTS ---
+void VtkWidget::addPoints(
+    const std::vector<Vector3d> &points,
+    const std::vector<std::array<unsigned char, 3>> &colors, float pointSize) {
+  clearPoints();
+
+  if (points.empty()) {
+    qWarning(lcCore) << "addPoints (multicolor) called with empty point set.";
+    return;
+  }
+  if (points.size() != colors.size()) {
+    qCritical(lcCore) << "Mismatch between point count (" << points.size()
+                      << ") and color count (" << colors.size() << ")!";
+    return;
+  }
+
+  qInfo(lcCore) << "Adding" << points.size()
+                << "multicolored points to the scene.";
+
+  vtkNew<vtkPoints> vtk_points;
+  vtkNew<vtkCellArray> vtk_vertices;
+  // Создаем специальный массив для цветов
+  vtkNew<vtkUnsignedCharArray> vtk_colors;
+  vtk_colors->SetNumberOfComponents(3); // 3 компонента на цвет (R, G, B)
+  vtk_colors->SetName("Colors");
+
+  for (size_t i = 0; i < points.size(); ++i) {
+    // Добавляем геометрию точки
+    vtkIdType pointId = vtk_points->InsertNextPoint(
+        points[i].x(), points[i].y(), points[i].z());
+    vtk_vertices->InsertNextCell(1, &pointId);
+    // Добавляем цвет для этой точки
+    vtk_colors->InsertNextTypedTuple(colors[i].data());
+  }
+
+  vtkNew<vtkPolyData> polyData;
+  polyData->SetPoints(vtk_points);
+  polyData->SetVerts(vtk_vertices);
+
+  // "Приклеиваем" массив цветов к точкам
+  polyData->GetPointData()->SetScalars(vtk_colors);
+
+  vtkNew<vtkPolyDataMapper> mapper;
+  mapper->SetInputData(polyData);
+  // Говорим мапперу использовать наши цвета
+  mapper->ScalarVisibilityOn();
+  mapper->SetScalarModeToUsePointData();
+  mapper->SetColorModeToDirectScalars();
+
+  m_pointsActor = vtkSmartPointer<vtkActor>::New();
+  m_pointsActor->SetMapper(mapper);
+  m_pointsActor->GetProperty()->SetPointSize(pointSize);
 
   m_renderer->AddActor(m_pointsActor);
   m_vtkWidget->renderWindow()->Render();
 }
 
+// ... addMesh, addPath, resetCamera без изменений ...
 void VtkWidget::addMesh(vtkPolyData *polyData, const double color[3],
                         double opacity) {
   if (m_meshActor) {
@@ -139,9 +203,7 @@ void VtkWidget::addMesh(vtkPolyData *polyData, const double color[3],
 }
 
 void VtkWidget::addPath(const std::vector<Vector3d> &pathPoints) {
-  // Удаляем старый путь
   clearPath();
-
   if (pathPoints.size() < 2)
     return;
 
@@ -149,16 +211,13 @@ void VtkWidget::addPath(const std::vector<Vector3d> &pathPoints) {
   for (const auto &p : pathPoints) {
     points->InsertNextPoint(p.x(), p.y(), p.z());
   }
-
   vtkNew<vtkPolyLine> polyLine;
   polyLine->GetPointIds()->SetNumberOfIds(pathPoints.size());
   for (unsigned int i = 0; i < pathPoints.size(); i++) {
     polyLine->GetPointIds()->SetId(i, i);
   }
-
   vtkNew<vtkCellArray> cells;
   cells->InsertNextCell(polyLine);
-
   vtkNew<vtkPolyData> polyData;
   polyData->SetPoints(points);
   polyData->SetLines(cells);
@@ -175,6 +234,27 @@ void VtkWidget::addPath(const std::vector<Vector3d> &pathPoints) {
   m_vtkWidget->renderWindow()->Render();
 }
 
+void VtkWidget::addRay(const Vector3d &start, const Vector3d &end,
+                       const double color[3], float lineWidth) {
+  clearRay(); // Сначала удаляем старый луч
+
+  vtkNew<vtkLineSource> lineSource;
+  lineSource->SetPoint1(start.data());
+  lineSource->SetPoint2(end.data());
+
+  vtkNew<vtkPolyDataMapper> mapper;
+  mapper->SetInputData(lineSource->GetOutput());
+
+  m_rayActor = vtkSmartPointer<vtkActor>::New();
+  m_rayActor->SetMapper(mapper);
+
+  m_rayActor->GetProperty()->SetColor(color[0], color[1], color[2]);
+  m_rayActor->GetProperty()->SetLineWidth(lineWidth);
+
+  m_renderer->AddActor(m_rayActor);
+  m_vtkWidget->renderWindow()->Render();
+}
+
 void VtkWidget::resetCamera() {
   if (m_renderer) {
     qInfo(lcCore) << "Resetting camera.";
@@ -183,47 +263,4 @@ void VtkWidget::resetCamera() {
   } else {
     qWarning(lcCore) << "Cannot reset camera, renderer is null.";
   }
-}
-
-void VtkWidget::addGraphEdges(const std::vector<Vector3d> &nodes,
-                              const AdjacencyList &adj) {
-  if (m_graphActor) {
-    m_renderer->RemoveActor(m_graphActor);
-  }
-  if (nodes.empty())
-    return;
-
-  vtkNew<vtkPoints> points;
-  vtkNew<vtkCellArray> lines;
-
-  for (const auto &node : nodes) {
-    points->InsertNextPoint(node.x(), node.y(), node.z());
-  }
-
-  for (size_t i = 0; i < adj.size(); ++i) {
-    for (int neighborId : adj[i]) {
-      if (i < (size_t)neighborId) {
-        vtkNew<vtkLine> line;
-        line->GetPointIds()->SetId(0, i);
-        line->GetPointIds()->SetId(1, neighborId);
-        lines->InsertNextCell(line);
-      }
-    }
-  }
-
-  vtkNew<vtkPolyData> polyData;
-  polyData->SetPoints(points);
-  polyData->SetLines(lines);
-
-  vtkNew<vtkPolyDataMapper> mapper;
-  mapper->SetInputData(polyData);
-
-  m_graphActor = vtkSmartPointer<vtkActor>::New();
-  m_graphActor->SetMapper(mapper);
-  m_graphActor->GetProperty()->SetColor(0.2, 0.2, 1.0);
-  m_graphActor->GetProperty()->SetLineWidth(1.0);
-  m_graphActor->GetProperty()->SetOpacity(0.5);
-
-  m_renderer->AddActor(m_graphActor);
-  m_vtkWidget->renderWindow()->Render();
 }

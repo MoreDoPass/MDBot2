@@ -35,10 +35,9 @@ add_executable(WoWNavigator
     src/core/loader/ObjLoader.cpp
     src/core/generator/NavMeshGenerator.cpp
     src/core/generator/pipeline/Voxelizer.cpp
-    src/core/voxelizer/Voxelizer.cpp
+    src/core/generator/pipeline/VoxelCoster.cpp
+    src/core/generator/pipeline/MeshFilter.cpp
     src/core/pathfinder/Pathfinder.cpp
-    src/core/pathfinder/PathSmoother.cpp
-    src/core/pathfinder/NavGraph.cpp
 )
 
 # --- Настройка путей для заголовочных файлов ---

@@ -4,6 +4,8 @@
 #include "core/math/Types.h"
 #include <QMainWindow>
 #include <memory>
+#include <optional> // <-- Убедись, что этот инклюд есть
+#include <vtkActor.h>
 #include <vtkPolyData.h>
 #include <vtkSmartPointer.h>
 
@@ -43,6 +45,7 @@ private slots:
   void onGetStartPosition();
   void onGetEndPosition();
   void onFindPath();
+  void onRaycast();
   void onRunInWoW();
 
   /**
@@ -53,7 +56,7 @@ private slots:
 private:
   void setupUi();
   void updateVoxelVisualization(NavMeshGenerator::VoxelizationStage stage);
-
+  void updateCostVisualization();
   // ... указатели на виджеты ...
   VtkWidget *m_vtkWidget = nullptr;
   QWidget *m_centralWidget = nullptr;
@@ -66,11 +69,13 @@ private:
   QPushButton *m_getStartButton = nullptr;
   QPushButton *m_getEndButton = nullptr;
   QPushButton *m_findPathButton = nullptr;
+  QPushButton *m_raycastButton = nullptr;
   QPushButton *m_runInWoWButton = nullptr;
   QLineEdit *m_startLineEdit = nullptr;
   QLineEdit *m_cellSizeLineEdit = nullptr;
   QLineEdit *m_cellHeightLineEdit = nullptr;
   QLineEdit *m_agentRadiusLineEdit = nullptr;
+  QLineEdit *m_agentSlopeLineEdit = nullptr;
   QLineEdit *m_endLineEdit = nullptr;
   QLineEdit *m_baseAddressLineEdit = nullptr;
   QTextEdit *m_pathOutputTextEdit = nullptr;
@@ -82,6 +87,7 @@ private:
   QRadioButton *m_radioDebugFloors = nullptr;
   QRadioButton *m_radioDebugHeight = nullptr;
   QRadioButton *m_radioDebugFinal = nullptr;
+  QRadioButton *m_radioDebugCosts = nullptr;
 
   std::unique_ptr<WoWController> connectToWoW();
 
@@ -93,6 +99,8 @@ private:
   // std::vector<Vector3d> m_walkablePoints;
   // vtkSmartPointer<vtkKdTree> m_kdTree;
   std::vector<Vector3d> m_currentPath;
+  std::optional<Vector3d> m_raycastStartPoint;
+  vtkSmartPointer<vtkActor> m_raycastActor;
 
   /// @brief Указатель на полигональные данные меша, чтобы не пересоздавать их.
   vtkSmartPointer<vtkPolyData> m_rawMeshPolyData;

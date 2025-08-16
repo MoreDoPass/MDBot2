@@ -44,7 +44,15 @@ Pathfinder::findPath(const NavMeshGenerator *generator,
   std::priority_queue<PathNode, std::vector<PathNode>, std::greater<PathNode>>
       openSet;
   std::unordered_map<size_t, PathNode> allNodes;
-  const VoxelGrid &walkableGrid = generator->getVoxelGrid();
+
+  const int gridWidth = generator->getGridWidth();
+  const int gridHeight = generator->getGridHeight();
+  const int gridDepth = generator->getGridDepth();
+
+  auto get_index = [&](int x, int y, int z) {
+    return (size_t)x + (size_t)z * gridWidth +
+           (size_t)y * gridWidth * gridDepth;
+  };
 
   PathNode startNode;
   startNode.x = startX;
@@ -53,7 +61,7 @@ Pathfinder::findPath(const NavMeshGenerator *generator,
   startNode.h = heuristic(startX, startY, startZ, endX, endY, endZ);
   startNode.f = startNode.h;
 
-  size_t startIndex = walkableGrid.getVoxelIndex(startX, startY, startZ);
+  size_t startIndex = get_index(startX, startY, startZ);
   allNodes[startIndex] = startNode;
   openSet.push(startNode);
 
@@ -65,8 +73,7 @@ Pathfinder::findPath(const NavMeshGenerator *generator,
     PathNode current = openSet.top();
     openSet.pop();
 
-    size_t currentIndex =
-        walkableGrid.getVoxelIndex(current.x, current.y, current.z);
+    size_t currentIndex = get_index(current.x, current.y, current.z);
     if (current.g > allNodes[currentIndex].g)
       continue;
 
@@ -93,16 +100,15 @@ Pathfinder::findPath(const NavMeshGenerator *generator,
           int ny = current.y + dy;
           int nz = current.z + dz;
 
-          if (nx < 0 || nx >= walkableGrid.gridWidth || ny < 0 ||
-              ny >= walkableGrid.gridHeight || nz < 0 ||
-              nz >= walkableGrid.gridDepth)
-            continue;
+          // --- ГЛАВНОЕ ИЗМЕНЕНИЕ ЗДЕСЬ ---
+          uint8_t cost = generator->getVoxelCost(nx, ny, nz);
+          if (cost > 0) { // Проверяем проходимость по стоимости
 
-          size_t neighborIndex = walkableGrid.getVoxelIndex(nx, ny, nz);
-          if (walkableGrid.solidVoxels[neighborIndex]) {
             double move_cost = std::sqrt(dx * dx + dy * dy + dz * dz);
-            double new_g = current.g + move_cost;
+            // Умножаем стоимость шага на стоимость целевого вокселя
+            double new_g = current.g + move_cost * static_cast<float>(cost);
 
+            size_t neighborIndex = get_index(nx, ny, nz);
             if (allNodes.find(neighborIndex) == allNodes.end() ||
                 new_g < allNodes[neighborIndex].g) {
               PathNode neighborNode;

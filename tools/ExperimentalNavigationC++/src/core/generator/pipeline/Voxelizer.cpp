@@ -4,12 +4,17 @@
 #include <algorithm> // Для std::min/max
 #include <cmath>
 
+#include <numeric> // <-- Для std::iota, чтобы создать индексы
+#include <thread>  // <-- ДЛЯ МНОГОПОТОЧНОСТИ
+#include <vector>  // <-- ДЛЯ МНОГОПОТОЧНОСТИ
+
 VoxelGrid Voxelizer::createSolidVoxels(const MeshData &meshData,
                                        double cellSize, double cellHeight,
                                        const Vector3d &boundsMin,
                                        const Vector3d &boundsMax) {
-  qInfo(lcCore) << "Voxelizer: Starting ACCURATE solid voxel creation...";
+  qInfo(lcCore) << "Voxelizer: Starting FAST solid voxel creation...";
 
+  // --- ШАГ 1: Подготовка сетки (без изменений) ---
   VoxelGrid grid;
   grid.gridWidth =
       static_cast<int>(ceil((boundsMax.x() - boundsMin.x()) / cellSize));
@@ -19,81 +24,149 @@ VoxelGrid Voxelizer::createSolidVoxels(const MeshData &meshData,
       static_cast<int>(ceil((boundsMax.z() - boundsMin.z()) / cellHeight));
 
   if (grid.gridWidth == 0 || grid.gridHeight == 0 || grid.gridDepth == 0) {
-    qWarning(lcCore) << "Voxel grid has zero dimension. Aborting voxelization.";
+    qWarning(lcCore) << "Voxel grid has zero dimension. Aborting.";
     return grid;
   }
 
-  size_t totalVoxels =
+  const size_t totalVoxels =
       (size_t)grid.gridWidth * grid.gridHeight * grid.gridDepth;
   grid.solidVoxels.assign(totalVoxels, false);
 
-  int solid_count = 0;
+  const int numTriangles = meshData.indices.size();
+  if (numTriangles == 0) {
+    qWarning(lcCore) << "Mesh has no triangles to voxelize.";
+    return grid;
+  }
 
-  const float cs = static_cast<float>(cellSize);
-  const float ch = static_cast<float>(cellHeight);
-  const float ics = 1.0f / cs;
-  const float ich = 1.0f / ch;
+  // --- ШАГ 2: Подготовка потоков (без изменений) ---
+  const unsigned int numThreads = std::max(
+      1u, std::thread::hardware_concurrency()); // Используем все доступные ядра
+  qInfo(lcCore) << "Using" << numThreads << "threads for voxelization.";
 
-  // Половинные размеры вокселя для теста на пересечение
-  const Vector3f box_halfsize(cs * 0.5f, cs * 0.5f, ch * 0.5f);
+  std::vector<std::thread> threads;
+  threads.reserve(numThreads);
 
-  for (const auto &tri_indices : meshData.indices) {
-    // Получаем вершины треугольника
-    Vector3f tri_verts[3] = {meshData.vertices[tri_indices[0]].cast<float>(),
-                             meshData.vertices[tri_indices[1]].cast<float>(),
-                             meshData.vertices[tri_indices[2]].cast<float>()};
+  // --- ИЗМЕНЕНИЕ ---
+  // Вместо вектора VoxelGrid, теперь мы храним вектор векторов с индексами.
+  // Каждый поток будет складывать сюда ИНДЕКСЫ вокселей, которые нужно
+  // закрасить.
+  std::vector<std::vector<size_t>> localResultIndices(numThreads);
 
-    // --- Шаг 1: Находим "рамку" (AABB) для треугольника, чтобы сузить поиск
-    // ---
-    float min_x =
-        std::min({tri_verts[0].x(), tri_verts[1].x(), tri_verts[2].x()});
-    float max_x =
-        std::max({tri_verts[0].x(), tri_verts[1].x(), tri_verts[2].x()});
-    float min_y =
-        std::min({tri_verts[0].y(), tri_verts[1].y(), tri_verts[2].y()});
-    float max_y =
-        std::max({tri_verts[0].y(), tri_verts[1].y(), tri_verts[2].y()});
-    float min_z =
-        std::min({tri_verts[0].z(), tri_verts[1].z(), tri_verts[2].z()});
-    float max_z =
-        std::max({tri_verts[0].z(), tri_verts[1].z(), tri_verts[2].z()});
+  const int trianglesPerThread = (numTriangles + numThreads - 1) / numThreads;
 
-    int Imin_x = static_cast<int>(floor((min_x - boundsMin.x()) * ics));
-    int Imax_x = static_cast<int>(ceil((max_x - boundsMin.x()) * ics));
-    int Imin_z = static_cast<int>(
-        floor((min_y - boundsMin.y()) * ics)); // World Y -> Grid Z
-    int Imax_z = static_cast<int>(ceil((max_y - boundsMin.y()) * ics));
-    int Imin_y = static_cast<int>(
-        floor((min_z - boundsMin.z()) * ich)); // World Z -> Grid Y
-    int Imax_y = static_cast<int>(ceil((max_z - boundsMin.z()) * ich));
+  // --- ШАГ 3: Запуск потоков с новой логикой ---
+  for (unsigned int i = 0; i < numThreads; ++i) {
 
-    // --- Шаг 2: Проходим по каждому вокселю ВНУТРИ рамки ---
-    for (int iy = Imin_y; iy <= Imax_y; ++iy) {
-      for (int iz = Imin_z; iz <= Imax_z; ++iz) {
-        for (int ix = Imin_x; ix <= Imax_x; ++ix) {
+    const int startTriangle = i * trianglesPerThread;
+    const int endTriangle =
+        std::min(startTriangle + trianglesPerThread, numTriangles);
 
-          if (ix < 0 || ix >= grid.gridWidth || iy < 0 ||
-              iy >= grid.gridHeight || iz < 0 || iz >= grid.gridDepth) {
-            continue;
-          }
-          size_t index = grid.getVoxelIndex(ix, iy, iz);
-          if (grid.solidVoxels[index]) {
-            continue; // Этот воксель уже закрашен, пропускаем
-          }
+    // Запускаем поток
+    threads.emplace_back([&, startTriangle, endTriangle, i] {
+      // Локальный вектор для индексов этого потока.
+      std::vector<size_t> indicesForThisThread;
+      // Предварительно резервируем память, чтобы избежать частых реаллокаций
+      indicesForThisThread.reserve(numTriangles * 10);
 
-          // --- Шаг 3: Выполняем ТОЧНУЮ проверку (как ты и просил) ---
-          // Находим центр текущего вокселя в мировых координатах
-          Vector3f box_center(boundsMin.x() + (ix + 0.5f) * cs,
-                              boundsMin.y() + (iz + 0.5f) * cs,
-                              boundsMin.z() + (iy + 0.5f) * ch);
+      // Временная сетка для отслеживания уже добавленных вокселей ВНУТРИ ОДНОГО
+      // ПОТОКА Это нужно, чтобы один и тот же воксель не был добавлен в список
+      // индексов много раз, если в него попадает несколько треугольников из
+      // одной "пачки".
+      VoxelGrid localTrackerGrid;
+      localTrackerGrid.gridWidth = grid.gridWidth;
+      localTrackerGrid.gridHeight = grid.gridHeight;
+      localTrackerGrid.gridDepth = grid.gridDepth;
+      localTrackerGrid.solidVoxels.assign(totalVoxels, false);
 
-          // Проверяем, пересекается ли воксель с треугольником
-          if (Intersection::triBoxOverlap(box_center, box_halfsize,
-                                          tri_verts)) {
-            grid.solidVoxels[index] = true;
-            solid_count++;
+      const float cs = static_cast<float>(cellSize);
+      const float ch = static_cast<float>(cellHeight);
+      const float ics = 1.0f / cs;
+      const float ich = 1.0f / ch;
+      const Vector3f box_halfsize(cs * 0.5f, cs * 0.5f, ch * 0.5f);
+
+      for (int triIdx = startTriangle; triIdx < endTriangle; ++triIdx) {
+        const auto &tri_indices = meshData.indices[triIdx];
+
+        Vector3f tri_verts[3] = {
+            meshData.vertices[tri_indices[0]].cast<float>(),
+            meshData.vertices[tri_indices[1]].cast<float>(),
+            meshData.vertices[tri_indices[2]].cast<float>()};
+
+        float min_x =
+            std::min({tri_verts[0].x(), tri_verts[1].x(), tri_verts[2].x()});
+        float max_x =
+            std::max({tri_verts[0].x(), tri_verts[1].x(), tri_verts[2].x()});
+        float min_y =
+            std::min({tri_verts[0].y(), tri_verts[1].y(), tri_verts[2].y()});
+        float max_y =
+            std::max({tri_verts[0].y(), tri_verts[1].y(), tri_verts[2].y()});
+        float min_z =
+            std::min({tri_verts[0].z(), tri_verts[1].z(), tri_verts[2].z()});
+        float max_z =
+            std::max({tri_verts[0].z(), tri_verts[1].z(), tri_verts[2].z()});
+
+        int Imin_x = static_cast<int>(floor((min_x - boundsMin.x()) * ics));
+        int Imax_x = static_cast<int>(ceil((max_x - boundsMin.x()) * ics));
+        int Imin_z = static_cast<int>(floor((min_y - boundsMin.y()) * ics));
+        int Imax_z = static_cast<int>(ceil((max_y - boundsMin.y()) * ics));
+        int Imin_y = static_cast<int>(floor((min_z - boundsMin.z()) * ich));
+        int Imax_y = static_cast<int>(ceil((max_z - boundsMin.z()) * ich));
+
+        for (int iy = Imin_y; iy <= Imax_y; ++iy) {
+          for (int iz = Imin_z; iz <= Imax_z; ++iz) {
+            for (int ix = Imin_x; ix <= Imax_x; ++ix) {
+              if (ix < 0 || ix >= grid.gridWidth || iy < 0 ||
+                  iy >= grid.gridHeight || iz < 0 || iz >= grid.gridDepth) {
+                continue;
+              }
+
+              size_t index = localTrackerGrid.getVoxelIndex(ix, iy, iz);
+              if (localTrackerGrid.solidVoxels[index]) {
+                continue;
+              }
+
+              Vector3f box_center(boundsMin.x() + (ix + 0.5f) * cs,
+                                  boundsMin.y() + (iz + 0.5f) * cs,
+                                  boundsMin.z() + (iy + 0.5f) * ch);
+
+              if (Intersection::triBoxOverlap(box_center, box_halfsize,
+                                              tri_verts)) {
+                // Вместо записи в локальную сетку, мы добавляем ИНДЕКС в список
+                indicesForThisThread.push_back(index);
+                localTrackerGrid.solidVoxels[index] =
+                    true; // И помечаем, что мы его уже добавили
+              }
+            }
           }
         }
+      }
+      // В конце работы поток сохраняет свой список индексов в общий массив
+      // результатов.
+      localResultIndices[i] = std::move(indicesForThisThread);
+    });
+  }
+
+  // --- ШАГ 4: Дожидаемся завершения ВСЕХ потоков ---
+  for (auto &t : threads) {
+    if (t.joinable()) {
+      t.join();
+    }
+  }
+  qInfo(lcCore) << "All threads finished processing triangles.";
+
+  // --- ШАГ 5: Слияние результатов (МОЛНИЕНОСНАЯ ВЕРСИЯ) ---
+  qInfo(lcCore) << "Merging results from all threads (index-based)...";
+
+  long long solid_count = 0;
+  // Проходим по вектору результатов КАЖДОГО потока
+  for (const auto &index_list : localResultIndices) {
+    // Проходим по списку ИНДЕКСОВ, которые нашел этот поток
+    for (size_t index : index_list) {
+      // Если этот воксель еще не был закрашен
+      if (!grid.solidVoxels[index]) {
+        // Закрашиваем его
+        grid.solidVoxels[index] = true;
+        solid_count++;
       }
     }
   }
@@ -103,157 +176,172 @@ VoxelGrid Voxelizer::createSolidVoxels(const MeshData &meshData,
   return grid;
 }
 
-// --- Остальные функции (filterWalkableFloors, filterByAgentHeight и т.д.) ---
-// --- ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ! ---
-// ... (скопируй их из своего старого файла или из моего предыдущего ответа) ...
+// --- ВОЗВРАЩАЕМ ПРОСТУЮ, НАДЕЖНУЮ ОДНОПОТОЧНУЮ ВЕРСИЮ ---
 VoxelGrid Voxelizer::filterWalkableFloors(const VoxelGrid &solidGrid) {
-  qInfo(lcCore) << "Voxelizer: Filtering walkable floors...";
-  VoxelGrid walkableGrid = solidGrid; // Копируем размеры
-  if (solidGrid.solidVoxels.empty())
+  qInfo(lcCore) << "Voxelizer: Filtering walkable floors (single-threaded, "
+                   "cache-efficient)...";
+
+  // Создаем новую сетку для результатов, копируя размеры из исходной.
+  VoxelGrid walkableGrid = solidGrid;
+  if (solidGrid.solidVoxels.empty()) {
+    qWarning(lcCore) << "Input solidGrid is empty, skipping floor filter.";
     return walkableGrid;
+  }
+  // Заполняем ее 'false', чтобы начать с чистого листа.
+  walkableGrid.solidVoxels.assign(solidGrid.solidVoxels.size(), false);
 
-  walkableGrid.solidVoxels.assign(solidGrid.solidVoxels.size(),
-                                  false); // Очищаем
-
-  int walkable_count = 0;
+  long long walkable_count = 0;
+  // Начинаем с Y=1, так как для каждого вокселя мы смотрим на воксель ПОД ним
+  // (y-1).
   for (int y = 1; y < solidGrid.gridHeight; ++y) {
     for (int z = 0; z < solidGrid.gridDepth; ++z) {
       for (int x = 0; x < solidGrid.gridWidth; ++x) {
-        size_t currentIndex = solidGrid.getVoxelIndex(x, y, z);
-        size_t floorIndex = solidGrid.getVoxelIndex(x, y - 1, z);
 
-        // Условие: текущий воксель - воздух, а под ним - твердый пол
+        const size_t currentIndex = solidGrid.getVoxelIndex(x, y, z);
+        const size_t floorIndex = solidGrid.getVoxelIndex(x, y - 1, z);
+
+        // Главное условие: если текущий воксель - это воздух,
+        // а воксель под ним - твердый...
         if (!solidGrid.solidVoxels[currentIndex] &&
             solidGrid.solidVoxels[floorIndex]) {
+
+          // ...то помечаем текущий воксель как проходимый пол.
           walkableGrid.solidVoxels[currentIndex] = true;
           walkable_count++;
         }
       }
     }
   }
+
   qInfo(lcCore) << "Voxelizer: Found" << walkable_count
                 << "potential walkable floor voxels.";
   return walkableGrid;
 }
 
+// --- ВОЗВРАЩАЕМ ПРОСТУЮ, НАДЕЖНУЮ ОДНОПОТОЧНУЮ ВЕРСИЮ ---
 VoxelGrid Voxelizer::filterByAgentHeight(const VoxelGrid &walkableFloors,
                                          const VoxelGrid &solidGrid,
                                          double agentHeight,
                                          double cellHeight) {
-  qInfo(lcCore) << "Voxelizer: Filtering floors by agent height...";
-  VoxelGrid finalGrid = walkableFloors; // Копируем, будем из нее удалять
+  qInfo(lcCore) << "Voxelizer: Filtering by agent height (single-threaded)...";
+  VoxelGrid finalGrid = walkableFloors;
   if (walkableFloors.solidVoxels.empty())
     return finalGrid;
 
   const int heightInVoxels = static_cast<int>(ceil(agentHeight / cellHeight));
-  int removed_count = 0;
 
   for (int y = 0; y < finalGrid.gridHeight; ++y) {
     for (int z = 0; z < finalGrid.gridDepth; ++z) {
       for (int x = 0; x < finalGrid.gridWidth; ++x) {
         size_t currentIndex = finalGrid.getVoxelIndex(x, y, z);
-        if (finalGrid.solidVoxels[currentIndex]) { // Если это проходимый пол
-          // Проверяем пространство над ним
-          for (int i = 1; i < heightInVoxels; ++i) {
-            int checkY = y + i;
+        if (finalGrid.solidVoxels[currentIndex]) {
+          for (int h = 1; h < heightInVoxels; ++h) {
+            int checkY = y + h;
             if (checkY >= solidGrid.gridHeight)
-              break; // Дошли до верха мира
+              break;
 
-            size_t checkIndex = solidGrid.getVoxelIndex(x, checkY, z);
-            if (solidGrid.solidVoxels[checkIndex]) {
-              // Нашли препятствие над головой!
+            if (solidGrid.solidVoxels[solidGrid.getVoxelIndex(x, checkY, z)]) {
               finalGrid.solidVoxels[currentIndex] = false;
-              removed_count++;
-              break; // Переходим к следующему вокселю
+              break;
             }
           }
         }
       }
     }
   }
-  qInfo(lcCore) << "Voxelizer: Removed" << removed_count
-                << "voxels due to low clearance.";
+
+  long long final_count = 0;
+  for (bool v : finalGrid.solidVoxels)
+    if (v)
+      final_count++;
+  qInfo(lcCore) << "Voxelizer: Height filter complete. Final walkable voxels:"
+                << final_count;
   return finalGrid;
 }
 
+// --- ВОЗВРАЩАЕМ ПРОСТУЮ, НАДЕЖНУЮ ОДНОПОТОЧНУЮ ВЕРСИЮ ---
 VoxelGrid Voxelizer::filterByAgentRadius(const VoxelGrid &heightFilteredGrid,
                                          const VoxelGrid &solidGrid,
                                          double agentRadius, double cellSize) {
-  qInfo(lcCore) << "Voxelizer: Filtering walkable area by agent radius (SMART "
-                   "version)...";
-  // ВАЖНО: Мы не можем изменять heightFilteredGrid напрямую,
-  // так как нам нужно читать из нее "чистые" данные во время итерации.
-  // Поэтому мы создаем новую, финальную сетку.
+  qInfo(lcCore) << "Voxelizer: Eroding walkable area with slope detection...";
+
   VoxelGrid finalGrid = heightFilteredGrid;
   finalGrid.solidVoxels.assign(finalGrid.solidVoxels.size(), false);
 
   if (heightFilteredGrid.solidVoxels.empty()) {
-    qWarning(lcCore)
-        << "Input for radius filter is empty. Result will be empty too.";
+    qWarning(lcCore) << "Input grid for radius filter is empty. Skipping.";
     return finalGrid;
   }
 
-  const int radiusInVoxels = static_cast<int>(floor(agentRadius / cellSize));
-  int removed_count = 0;
-  int initial_count = 0;
+  const int radiusInVoxels = static_cast<int>(ceil(agentRadius / cellSize));
+  qInfo(lcCore) << "Agent radius" << agentRadius << "maps to" << radiusInVoxels
+                << "voxels for erosion.";
 
   for (int y = 0; y < heightFilteredGrid.gridHeight; ++y) {
     for (int z = 0; z < heightFilteredGrid.gridDepth; ++z) {
       for (int x = 0; x < heightFilteredGrid.gridWidth; ++x) {
 
-        size_t currentIndex = heightFilteredGrid.getVoxelIndex(x, y, z);
-        // Проверяем, был ли этот воксель проходимым ДО начала нашей проверки
-        if (!heightFilteredGrid.solidVoxels[currentIndex]) {
+        if (!heightFilteredGrid
+                 .solidVoxels[heightFilteredGrid.getVoxelIndex(x, y, z)]) {
           continue;
         }
-        initial_count++; // Считаем, сколько было проходимых вокселей изначально
 
-        bool canStandHere = true;
-        // --- НОВАЯ ЛОГИКА ---
-        // Мы проверяем квадрат вокруг точки (x, z). Если ХОТЯ БЫ ОДИН
-        // соседний воксель в этом квадрате НЕ является проходимым полом
-        // на ТОЙ ЖЕ ВЫСОТЕ, то мы считаем нашу точку (x,y,z) слишком
-        // близкой к краю/стене/обрыву.
+        bool isSafe = true;
         for (int dz = -radiusInVoxels; dz <= radiusInVoxels; ++dz) {
           for (int dx = -radiusInVoxels; dx <= radiusInVoxels; ++dx) {
+
             int checkX = x + dx;
             int checkZ = z + dz;
 
-            // Проверяем соседа на выход за границы мира
             if (checkX < 0 || checkX >= heightFilteredGrid.gridWidth ||
                 checkZ < 0 || checkZ >= heightFilteredGrid.gridDepth) {
-              canStandHere = false; // Сосед за границей, значит мы у края мира
+              isSafe = false;
               break;
             }
 
-            // Получаем индекс соседа
+            // --- НОВАЯ УМНАЯ ПРОВЕРКА ---
+            // Сосед считается препятствием, только если он непроходим
+            // и под ним тоже нет проходимого пола (т.е. это не ступенька вниз).
             size_t neighborIndex =
                 heightFilteredGrid.getVoxelIndex(checkX, y, checkZ);
 
-            // Если соседний воксель НЕ является проходимым полом (из
-            // предыдущего этапа)...
             if (!heightFilteredGrid.solidVoxels[neighborIndex]) {
-              canStandHere = false; // ...значит мы уперлись в стену или обрыв
-              break;
+              // Сосед на нашем уровне непроходим. Но может это склон?
+              // Проверим уровень ниже.
+              if (y > 0) {
+                size_t neighborBelowIndex =
+                    heightFilteredGrid.getVoxelIndex(checkX, y - 1, checkZ);
+                // Если и на уровень ниже пусто, то это точно стена/обрыв.
+                if (!heightFilteredGrid.solidVoxels[neighborBelowIndex]) {
+                  isSafe = false;
+                  break;
+                }
+                // Если мы здесь, значит под соседом есть земля. Это склон.
+                // Не считаем это препятствием для эрозии.
+              } else {
+                // Мы на самом нижнем уровне, и сосед непроходим. Это стена.
+                isSafe = false;
+                break;
+              }
             }
           }
-          if (!canStandHere)
+          if (!isSafe)
             break;
         }
 
-        if (canStandHere) {
-          // Если после всех проверок мы все еще можем здесь стоять,
-          // копируем 'true' в нашу финальную сетку.
-          finalGrid.solidVoxels[currentIndex] = true;
-        } else {
-          removed_count++;
+        if (isSafe) {
+          finalGrid.solidVoxels[finalGrid.getVoxelIndex(x, y, z)] = true;
         }
       }
     }
   }
 
-  qInfo(lcCore) << "Voxelizer: Radius filter complete. Initial walkable voxels:"
-                << initial_count << ", removed:" << removed_count
-                << ", final:" << (initial_count - removed_count);
+  long long final_count = 0;
+  for (bool v : finalGrid.solidVoxels)
+    if (v)
+      final_count++;
+  qInfo(lcCore) << "Voxelizer: Radius filter (erosion) complete. Final "
+                   "walkable voxels:"
+                << final_count;
   return finalGrid;
 }
