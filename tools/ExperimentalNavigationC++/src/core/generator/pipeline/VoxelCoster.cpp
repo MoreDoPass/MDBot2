@@ -3,86 +3,109 @@
 
 // Реализация нашего статического метода
 std::vector<uint8_t> VoxelCoster::calculateCosts(const VoxelGrid &walkableGrid,
-                                                 const VoxelGrid &solidGrid) {
-  qInfo(lcCore) << "Calculating voxel costs with improved cliff detection...";
+                                                 int agentMaxClimbInVoxels) {
 
-  if (walkableGrid.solidVoxels.empty() || solidGrid.solidVoxels.empty()) {
-    qWarning(lcCore) << "Cannot calculate costs, input voxel grids are empty.";
+  qInfo(lcCore)
+      << "Calculating voxel costs with SLOPE-AWARE cliff detection...";
+
+  if (walkableGrid.solidVoxels.empty()) {
+    qWarning(lcCore) << "Cannot calculate costs, input walkableGrid is empty.";
     return {};
   }
 
+  // Создаем вектор для стоимостей, изначально все непроходимо (0)
   std::vector<uint8_t> costs(walkableGrid.solidVoxels.size(), 0);
   const int gridWidth = walkableGrid.gridWidth;
   const int gridHeight = walkableGrid.gridHeight;
   const int gridDepth = walkableGrid.gridDepth;
 
-  // --- ИЗМЕНЕНИЕ: Определяем глубину проверки на обрыв ---
-  // Сколько вокселей вниз мы будем проверять, прежде чем признать это обрывом.
-  // 3 вокселя - хороший компромисс.
-  const int cliffCheckDepth = 3;
+  // Глубина проверки падения вниз. Должна быть больше, чем высота подъема.
+  const int cliffCheckFallDown = agentMaxClimbInVoxels + 2;
 
+  // Проходим по всем вокселям сетки
   for (int y = 0; y < gridHeight; ++y) {
     for (int z = 0; z < gridDepth; ++z) {
       for (int x = 0; x < gridWidth; ++x) {
 
         const size_t currentIndex = walkableGrid.getVoxelIndex(x, y, z);
 
+        // Работаем только с проходимыми вокселями
         if (!walkableGrid.solidVoxels[currentIndex]) {
           continue;
         }
 
-        uint16_t currentCost = 1;
+        uint16_t currentCost = 1; // Базовая стоимость для проходимого вокселя
 
+        // Проверяем 8 соседей по горизонтали
         for (int dz = -1; dz <= 1; ++dz) {
           for (int dx = -1; dx <= 1; ++dx) {
             if (dx == 0 && dz == 0)
-              continue;
+              continue; // Пропускаем самого себя
 
             int checkX = x + dx;
             int checkZ = z + dz;
 
-            // Проверка на выход за пределы карты (это всегда обрыв)
+            // Если сосед за пределами карты, считаем это небольшим обрывом
             if (checkX < 0 || checkX >= gridWidth || checkZ < 0 ||
                 checkZ >= gridDepth) {
-              currentCost += 5;
+              currentCost += 2;
               continue;
             }
 
-            const size_t neighborIndex =
-                walkableGrid.getVoxelIndex(checkX, y, checkZ);
+            // --- ГЛАВНОЕ ИЗМЕНЕНИЕ: УМНАЯ ПРОВЕРКА ОПОРЫ У СОСЕДА ---
+            bool isNeighborSafe = false;
+            // Ищем опору для соседа в вертикальном диапазоне, который может
+            // преодолеть агент
+            for (int dy = -agentMaxClimbInVoxels; dy <= agentMaxClimbInVoxels;
+                 ++dy) {
+              int checkY = y + dy;
+              // Проверяем, что не вышли за пределы по высоте
+              if (checkY >= 0 && checkY < gridHeight) {
+                // Если нашли в этой колонке проходимый воксель, значит это
+                // склон/ступенька, а не обрыв
+                if (walkableGrid.solidVoxels[walkableGrid.getVoxelIndex(
+                        checkX, checkY, checkZ)]) {
+                  isNeighborSafe = true;
+                  break; // Нашли безопасную опору, дальше в этой колонке не
+                         // ищем
+                }
+              }
+            }
 
-            // Если соседний воксель на том же уровне - проходимый, то все ОК.
-            if (walkableGrid.solidVoxels[neighborIndex]) {
+            // Если мы нашли опору (isNeighborSafe == true), значит сосед
+            // безопасен. Переходим к следующему соседу.
+            if (isNeighborSafe) {
               continue;
             }
 
-            // --- НОВАЯ УМНАЯ ЛОГИКА ПРОВЕРКИ ОБРЫВА ---
-            // Сосед непроходим. Теперь проверим, склон это или реальный обрыв.
-            bool isGroundFound = false;
-            for (int i = 1; i <= cliffCheckDepth; ++i) {
+            // Если мы дошли сюда, значит безопасной опоры для соседа рядом не
+            // нашлось. Это может быть обрыв. Проверим, есть ли земля далеко
+            // внизу.
+            bool isGroundFoundFarBelow = false;
+            for (int i = 1; i <= cliffCheckFallDown; ++i) {
               int checkY = y - i;
               if (checkY < 0)
-                break; // Дошли до дна карты
+                break;
 
-              size_t neighborBelowIndex =
-                  solidGrid.getVoxelIndex(checkX, checkY, checkZ);
-              if (solidGrid.solidVoxels[neighborBelowIndex]) {
-                isGroundFound = true; // Нашли опору! Это склон/ступенька.
+              if (walkableGrid.solidVoxels[walkableGrid.getVoxelIndex(
+                      checkX, checkY, checkZ)]) {
+                isGroundFoundFarBelow = true;
                 break;
               }
             }
 
-            // Если мы просканировали всю глубину и не нашли опоры - это обрыв.
-            if (!isGroundFound) {
-              currentCost += 5; // Добавляем штраф
+            // Если земли нет даже далеко внизу, это точно обрыв. Увеличиваем
+            // стоимость.
+            if (!isGroundFoundFarBelow) {
+              currentCost += 4; // Штраф за обрыв
             }
           }
         }
 
-        if (currentCost > 254) {
-          currentCost = 254;
-        }
-        costs[currentIndex] = static_cast<uint8_t>(currentCost);
+        // Записываем финальную стоимость, ограничивая сверху (255 - спец.
+        // значение для A*)
+        costs[currentIndex] =
+            static_cast<uint8_t>(std::min(currentCost, (uint16_t)254));
       }
     }
   }

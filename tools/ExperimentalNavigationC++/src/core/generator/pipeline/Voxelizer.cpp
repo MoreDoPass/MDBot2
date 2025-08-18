@@ -16,13 +16,17 @@ VoxelGrid Voxelizer::createSolidVoxels(const MeshData &meshData,
 
   // --- ШАГ 1: Подготовка сетки (без изменений) ---
   VoxelGrid grid;
-  grid.gridWidth =
+  const int gridWidth =
       static_cast<int>(ceil((boundsMax.x() - boundsMin.x()) / cellSize));
-  grid.gridDepth =
+  const int gridDepth =
       static_cast<int>(ceil((boundsMax.y() - boundsMin.y()) / cellSize));
-  grid.gridHeight =
+  const int gridHeight =
       static_cast<int>(ceil((boundsMax.z() - boundsMin.z()) / cellHeight));
 
+  // Присваиваем эти значения финальной структуре grid
+  grid.gridWidth = gridWidth;
+  grid.gridDepth = gridDepth;
+  grid.gridHeight = gridHeight;
   if (grid.gridWidth == 0 || grid.gridHeight == 0 || grid.gridDepth == 0) {
     qWarning(lcCore) << "Voxel grid has zero dimension. Aborting.";
     return grid;
@@ -177,37 +181,63 @@ VoxelGrid Voxelizer::createSolidVoxels(const MeshData &meshData,
 }
 
 // --- ВОЗВРАЩАЕМ ПРОСТУЮ, НАДЕЖНУЮ ОДНОПОТОЧНУЮ ВЕРСИЮ ---
-VoxelGrid Voxelizer::filterWalkableFloors(const VoxelGrid &solidGrid) {
-  qInfo(lcCore) << "Voxelizer: Filtering walkable floors (single-threaded, "
-                   "cache-efficient)...";
+VoxelGrid Voxelizer::filterWalkableFloors(const VoxelGrid &solidGrid,
+                                          double agentMaxClimb,
+                                          double cellHeight) {
+  qInfo(lcCore)
+      << "Voxelizer: Filtering walkable floors with smart climb detection...";
 
-  // Создаем новую сетку для результатов, копируя размеры из исходной.
   VoxelGrid walkableGrid = solidGrid;
   if (solidGrid.solidVoxels.empty()) {
     qWarning(lcCore) << "Input solidGrid is empty, skipping floor filter.";
     return walkableGrid;
   }
-  // Заполняем ее 'false', чтобы начать с чистого листа.
   walkableGrid.solidVoxels.assign(solidGrid.solidVoxels.size(), false);
 
+  // Вычисляем, сколько вокселей вверх может "перешагнуть" агент
+  const int maxClimbVoxels = static_cast<int>(ceil(agentMaxClimb / cellHeight));
+  qInfo(lcCore) << "Agent max climb" << agentMaxClimb << "maps to"
+                << maxClimbVoxels << "voxels.";
+
   long long walkable_count = 0;
-  // Начинаем с Y=1, так как для каждого вокселя мы смотрим на воксель ПОД ним
-  // (y-1).
-  for (int y = 1; y < solidGrid.gridHeight; ++y) {
-    for (int z = 0; z < solidGrid.gridDepth; ++z) {
-      for (int x = 0; x < solidGrid.gridWidth; ++x) {
 
-        const size_t currentIndex = solidGrid.getVoxelIndex(x, y, z);
-        const size_t floorIndex = solidGrid.getVoxelIndex(x, y - 1, z);
+  // Проходим по каждой вертикальной колонке (x, z)
+  for (int z = 0; z < solidGrid.gridDepth; ++z) {
+    for (int x = 0; x < solidGrid.gridWidth; ++x) {
 
-        // Главное условие: если текущий воксель - это воздух,
-        // а воксель под ним - твердый...
-        if (!solidGrid.solidVoxels[currentIndex] &&
-            solidGrid.solidVoxels[floorIndex]) {
+      // Идем по колонке снизу вверх
+      for (int y = 0; y < solidGrid.gridHeight - 1; ++y) {
 
-          // ...то помечаем текущий воксель как проходимый пол.
-          walkableGrid.solidVoxels[currentIndex] = true;
-          walkable_count++;
+        const size_t belowIdx = solidGrid.getVoxelIndex(x, y, z);
+        const size_t currentIdx = solidGrid.getVoxelIndex(x, y + 1, z);
+
+        // ИЩЕМ ПЕРЕХОД: твердая поверхность снизу, а над ней - воздух
+        if (solidGrid.solidVoxels[belowIdx] &&
+            !solidGrid.solidVoxels[currentIdx]) {
+
+          // Мы нашли "пол" на уровне Y.
+          // Теперь "заливаем" проходимостью все пустые воксели над ним
+          // в пределах максимальной высоты подъема.
+          for (int k = 1; k <= maxClimbVoxels; ++k) {
+            int checkY = y + k;
+
+            // Проверяем, не вышли ли мы за пределы карты
+            if (checkY >= solidGrid.gridHeight)
+              break;
+
+            const size_t checkIdx = solidGrid.getVoxelIndex(x, checkY, z);
+
+            // Если уперлись в потолок (другую твердую геометрию),
+            // останавливаемся
+            if (solidGrid.solidVoxels[checkIdx])
+              break;
+
+            // Если этот воксель еще не помечен как проходимый
+            if (!walkableGrid.solidVoxels[checkIdx]) {
+              walkableGrid.solidVoxels[checkIdx] = true;
+              walkable_count++;
+            }
+          }
         }
       }
     }

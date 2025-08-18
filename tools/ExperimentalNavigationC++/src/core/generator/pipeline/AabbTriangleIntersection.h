@@ -40,9 +40,21 @@ inline void find_min_max(float v0, float v1, float v2, float &min, float &max) {
  * @param tri_verts Массив из 3-х вершин треугольника.
  * @return true, если есть пересечение, иначе false.
  */
-inline bool triBoxOverlap(const Vector3f &box_center,
-                          const Vector3f &box_halfsize,
-                          const Vector3f tri_verts[3]) {
+inline bool
+triBoxOverlap(const Vector3f &box_center,
+              const Vector3f &box_halfsize_orig, // Переименовали для ясности
+              const Vector3f tri_verts[3]) {
+
+  // =================================================================================
+  // === ГЛАВНЫЙ ФИКС ЗДЕСЬ ===
+  // === Мы добавляем крошечную константу (эпсилон) к размерам куба. ===
+  // === Это делает тест устойчивым к ошибкам округления, когда треугольник ===
+  // === лежит ровно на границе вокселя. ===
+  // =================================================================================
+  const float EPSILON = 1e-5f;
+  const Vector3f box_halfsize =
+      box_halfsize_orig + Vector3f(EPSILON, EPSILON, EPSILON);
+
   // Перемещаем все в систему координат, где центр куба находится в (0,0,0)
   Vector3f v0 = tri_verts[0] - box_center;
   Vector3f v1 = tri_verts[1] - box_center;
@@ -56,7 +68,6 @@ inline bool triBoxOverlap(const Vector3f &box_center,
   // --- Тестируем 9 осей, образованных векторным произведением ребер ---
   float min, max, p0, p1, p2, rad, fex, fey, fez;
 
-// Макрос для тестирования одной оси
 #define AXISTEST_X(a, b, fa, fb)                                               \
   p0 = a * v0.y() - b * v0.z();                                                \
   p1 = a * v1.y() - b * v1.z();                                                \
@@ -64,7 +75,7 @@ inline bool triBoxOverlap(const Vector3f &box_center,
   rad = fa * box_halfsize.y() + fb * box_halfsize.z();                         \
   find_min_max(p0, p1, p2, min, max);                                          \
   if (min > rad || max < -rad)                                                 \
-    return false; // Найдена разделяющая ось, пересечения нет
+    return false;
 
 #define AXISTEST_Y(a, b, fa, fb)                                               \
   p0 = -a * v0.x() + b * v0.z();                                               \
@@ -105,28 +116,22 @@ inline bool triBoxOverlap(const Vector3f &box_center,
   AXISTEST_Y(e2.z(), e2.x(), fez, fex);
   AXISTEST_Z(e2.y(), e2.x(), fey, fex);
 
-  // --- Тестируем 3 оси, параллельные осям куба ---
-  // Ось X
   find_min_max(v0.x(), v1.x(), v2.x(), min, max);
   if (min > box_halfsize.x() || max < -box_halfsize.x())
     return false;
-  // Ось Y
   find_min_max(v0.y(), v1.y(), v2.y(), min, max);
   if (min > box_halfsize.y() || max < -box_halfsize.y())
     return false;
-  // Ось Z
   find_min_max(v0.z(), v1.z(), v2.z(), min, max);
   if (min > box_halfsize.z() || max < -box_halfsize.z())
     return false;
 
-  // --- Тестируем 1 ось - нормаль треугольника ---
   Vector3f normal = e0.cross(e1);
   float d = normal.dot(v0);
   float radius = normal.cwiseAbs().dot(box_halfsize);
   if (d > radius || d < -radius)
     return false;
 
-  // Если ни одна из 13 осей не является разделяющей, значит есть пересечение
   return true;
 }
 

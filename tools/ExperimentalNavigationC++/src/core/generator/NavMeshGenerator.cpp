@@ -23,6 +23,18 @@ bool NavMeshGenerator::build(const MeshData &meshData,
 
   calculateBounds(meshData.vertices);
 
+  // Искусственно расширяем границы для надежности фильтров
+  if (m_boundsMax.z() - m_boundsMin.z() < m_config.cellHeight * 2.0) {
+    double centerZ = (m_boundsMax.z() + m_boundsMin.z()) / 2.0;
+    m_boundsMin.z() = centerZ - m_config.cellHeight;
+    m_boundsMax.z() = centerZ + m_config.cellHeight;
+  }
+  const double borderSizeXY = 2.0 * m_config.cellSize;
+  const double borderSizeZ = 2.0 * m_config.cellHeight;
+  m_boundsMin -= Vector3d(borderSizeXY, borderSizeXY, borderSizeZ);
+  m_boundsMax += Vector3d(borderSizeXY, borderSizeXY, borderSizeZ);
+
+  // Вычисляем размеры сетки на основе безопасных границ
   m_gridWidth = static_cast<int>(
       ceil((m_boundsMax.x() - m_boundsMin.x()) / m_config.cellSize));
   m_gridDepth = static_cast<int>(
@@ -36,36 +48,20 @@ bool NavMeshGenerator::build(const MeshData &meshData,
     return false;
   }
 
-  // ======================================================================
-  // === КОНВЕЙЕР 1: ДАННЫЕ ДЛЯ РЕЙКАСТИНГА И ПРОВЕРКИ ОБРЫВОВ         ===
-  // ======================================================================
+  // === КОНВЕЙЕР 1: ДАННЫЕ ДЛЯ РЕЙКАСТИНГА ===
   qInfo(lcCore) << "[Pipeline 1/2] Generating solid grid for collision...";
   m_solidGrid = Voxelizer::createSolidVoxels(meshData, m_config.cellSize,
                                              m_config.cellHeight, m_boundsMin,
                                              m_boundsMax);
   m_debugGrids[VoxelizationStage::Solid] = m_solidGrid;
 
-  // ======================================================================
-  // === КОНВЕЙЕР 2: ДАННЫЕ ДЛЯ ПЕШЕЙ НАВИГАЦИИ                        ===
-  // ======================================================================
+  // === КОНВЕЙЕР 2: ДАННЫЕ ДЛЯ ПЕШЕЙ НАВИГАЦИИ ===
   qInfo(lcCore) << "[Pipeline 2/2] Generating walkable navigation data...";
 
-  // --- ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: Мы пока не используем фильтр по углу, ---
-  // --- так как он ломает `filterWalkableFloors`.                   ---
-  // --- Вместо этого, все последующие фильтры будут работать с      ---
-  // --- полной картой `m_solidGrid`, как это было раньше.            ---
-
-  // MeshData walkableMesh = MeshFilter::filterBySlope(meshData,
-  // m_config.agentMaxSlope); VoxelGrid walkableSolidGrid =
-  // Voxelizer::createSolidVoxels(
-  //     walkableMesh, m_config.cellSize, m_config.cellHeight, m_boundsMin,
-  //     m_boundsMax);
-
-  // Используем m_solidGrid, в котором есть стены, для корректного поиска полов.
-  VoxelGrid floorGrid = Voxelizer::filterWalkableFloors(m_solidGrid);
+  VoxelGrid floorGrid = Voxelizer::filterWalkableFloors(
+      m_solidGrid, m_config.agentMaxClimb, m_config.cellHeight);
   m_debugGrids[VoxelizationStage::WalkableFloors] = floorGrid;
 
-  // Для проверки высоты также используем m_solidGrid
   VoxelGrid heightFilteredGrid = Voxelizer::filterByAgentHeight(
       floorGrid, m_solidGrid, m_config.agentHeight, m_config.cellHeight);
   m_debugGrids[VoxelizationStage::HeightFiltered] = heightFilteredGrid;
@@ -73,9 +69,32 @@ bool NavMeshGenerator::build(const MeshData &meshData,
   VoxelGrid radiusFilteredGrid = Voxelizer::filterByAgentRadius(
       heightFilteredGrid, m_solidGrid, m_config.agentRadius, m_config.cellSize);
   m_debugGrids[VoxelizationStage::RadiusFiltered] = radiusFilteredGrid;
-  m_debugGrids[VoxelizationStage::FinalWalkable] = radiusFilteredGrid;
+  m_debugGrids[VoxelizationStage::FinalWalkable] =
+      radiusFilteredGrid; // Final = результат фильтра по радиусу
 
-  m_voxelCosts = VoxelCoster::calculateCosts(radiusFilteredGrid, m_solidGrid);
+  // =========================================================================
+  // === ИЗМЕНЕНИЕ ЗДЕСЬ: Убираем VoxelCoster, создаем стоимость вручную    ===
+  // =========================================================================
+  qInfo(lcCore) << "Assigning simple cost '1' to all walkable voxels...";
+
+  // 1. Создаем вектор стоимостей нужного размера, заполненный нулями
+  // (непроходимо).
+  const size_t totalVoxels = (size_t)m_gridWidth * m_gridHeight * m_gridDepth;
+  m_voxelCosts.assign(totalVoxels, 0);
+
+  // 2. Проходим по результату фильтра по радиусу (radiusFilteredGrid).
+  //    Если воксель в нем проходим (true), ставим ему стоимость 1 в
+  //    m_voxelCosts.
+  for (size_t i = 0; i < radiusFilteredGrid.solidVoxels.size(); ++i) {
+    if (radiusFilteredGrid.solidVoxels[i]) {
+      m_voxelCosts[i] = 1;
+    }
+  }
+
+  // СТАРЫЙ КОД УДАЛЕН:
+  // const int agentMaxClimbInVoxels = ...
+  // m_voxelCosts = VoxelCoster::calculateCosts(radiusFilteredGrid,
+  // agentMaxClimbInVoxels);
 
   qInfo(lcCore) << "Full pipeline finished. NavMesh is ready.";
   return true;

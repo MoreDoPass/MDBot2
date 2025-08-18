@@ -26,6 +26,7 @@ class NavMeshGenerator; // Оставляем прямое объявление,
 class WoWController;
 class QGroupBox;    // <-- Новое
 class QRadioButton; // <-- Новое
+class QCheckBox;    // <-- ДОБАВЛЯЕМ ЭТО
 
 /**
  * @class MainWindow
@@ -76,6 +77,7 @@ private:
   QLineEdit *m_cellHeightLineEdit = nullptr;
   QLineEdit *m_agentRadiusLineEdit = nullptr;
   QLineEdit *m_agentSlopeLineEdit = nullptr;
+  QLineEdit *m_agentClimbLineEdit = nullptr;
   QLineEdit *m_endLineEdit = nullptr;
   QLineEdit *m_baseAddressLineEdit = nullptr;
   QTextEdit *m_pathOutputTextEdit = nullptr;
@@ -88,6 +90,8 @@ private:
   QRadioButton *m_radioDebugHeight = nullptr;
   QRadioButton *m_radioDebugFinal = nullptr;
   QRadioButton *m_radioDebugCosts = nullptr;
+
+  QCheckBox *m_useCubesCheckBox = nullptr;
 
   std::unique_ptr<WoWController> connectToWoW();
 

@@ -36,12 +36,16 @@ public:
                                      const Vector3d &boundsMax);
 
   /**
-   * @brief ЭТАП 2: Находит все проходимые полы.
+   * @brief ЭТАП 2: Находит все проходимые полы с учетом высоты подъема.
    * @param solidGrid Карта "твердых" вокселей, результат Этапа 1.
-   * @return Новая VoxelGrid, где true - это пустой воксель, под которым есть
-   * твердый пол.
+   * @param agentMaxClimb Максимальная высота, на которую может подняться агент.
+   * @param cellHeight Высота одного вокселя.
+   * @return Новая VoxelGrid, где создан сплошной проходимый слой над всей
+   * "землей".
    */
-  static VoxelGrid filterWalkableFloors(const VoxelGrid &solidGrid);
+  static VoxelGrid filterWalkableFloors(const VoxelGrid &solidGrid,
+                                        double agentMaxClimb,
+                                        double cellHeight);
 
   /**
    * @brief ЭТАП 3: Фильтрует полы по высоте агента.
