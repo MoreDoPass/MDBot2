@@ -1,6 +1,4 @@
 #include "NavMeshGenerator.h"
-#include "pipeline/MeshFilter.h"
-#include "pipeline/VoxelCoster.h" // <-- Подключаем наш новый инструмент
 #include "shared/Logger.h"
 #include <limits>
 

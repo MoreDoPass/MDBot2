@@ -1,6 +1,4 @@
 #pragma once
-
-#include "core/generator/pipeline/VoxelCoster.h"
 #include "core/generator/pipeline/Voxelizer.h"
 #include "core/loader/ObjLoader.h"
 #include "core/math/Types.h"
@@ -11,7 +9,6 @@
 #include <vector>
 
 // Forward declaration
-class MeshFilter; // <-- Добавим, т.к. используем его в .cpp
 
 struct NavMeshConfig {
   double cellSize = 0.3;
@@ -29,8 +26,8 @@ public:
     WalkableFloors,
     HeightFiltered,
     RadiusFiltered, // <-- Добавим новое для отладки
-    FinalWalkable // Этот оставим для совместимости, но он будет равен
-                  // RadiusFiltered
+    FinalWalkable   // Этот оставим для совместимости, но он будет равен
+                    // RadiusFiltered
   };
 
   using ProgressCallback = std::function<void(int)>;
