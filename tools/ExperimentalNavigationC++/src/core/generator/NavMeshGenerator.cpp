@@ -7,12 +7,27 @@ NavMeshGenerator::NavMeshGenerator(const NavMeshConfig &config)
   qInfo(lcCore) << "NavMeshGenerator created.";
 }
 
+/**
+ * @brief (ИЗМЕНЕНО) Главный метод для построения NavMesh.
+ * @details Весь конвейер вокселизации выполняется здесь. Главное изменение:
+ *          блок сравнения памяти плотной и разреженной сеток был ПЕРЕНЕСЕН
+ *          с `m_solidGrid` на финальную `radiusFilteredGrid`. Это покажет нам
+ *          реальную экономию памяти для данных, которые будут использоваться
+ *          при поиске пути.
+ * @param meshData Входные данные меша (вершины и индексы).
+ * @param progressCallback (Опционально) Функция обратного вызова для
+ * отображения прогресса.
+ * @return true, если построение прошло успешно, иначе false.
+ */
 bool NavMeshGenerator::build(const MeshData &meshData,
                              const ProgressCallback &progressCallback) {
   qInfo(lcCore) << "NavMesh generation started (Full Pipeline)...";
   m_debugGrids.clear();
   m_voxelCosts.clear();
   m_solidGrid.solidVoxels.clear();
+
+  // Обнуляем разреженную сетку, на случай если это не первый запуск
+  m_sparseSolidGrid.solidVoxels.clear();
 
   if (meshData.vertices.empty()) {
     qWarning(lcCore) << "MeshData is empty. Aborting build.";
@@ -53,6 +68,10 @@ bool NavMeshGenerator::build(const MeshData &meshData,
                                              m_boundsMax);
   m_debugGrids[VoxelizationStage::Solid] = m_solidGrid;
 
+  // =========================================================================
+  // === СТАРЫЙ КОД УДАЛЕН ОТСЮДА                                          ===
+  // =========================================================================
+
   // === КОНВЕЙЕР 2: ДАННЫЕ ДЛЯ ПЕШЕЙ НАВИГАЦИИ ===
   qInfo(lcCore) << "[Pipeline 2/2] Generating walkable navigation data...";
 
@@ -71,28 +90,52 @@ bool NavMeshGenerator::build(const MeshData &meshData,
       radiusFilteredGrid; // Final = результат фильтра по радиусу
 
   // =========================================================================
-  // === ИЗМЕНЕНИЕ ЗДЕСЬ: Убираем VoxelCoster, создаем стоимость вручную    ===
+  // === НАЧАЛО НОВОГО КОДА: Сравнение памяти для ФИНАЛЬНОЙ сетки          ===
   // =========================================================================
+  qInfo(lcCore) << "--- Comparing memory usage for FINAL WALKABLE grid ---";
+  if (!radiusFilteredGrid.solidVoxels.empty()) {
+    // 1. Конвертируем финальную проходимую сетку в разреженный формат.
+    //    Используем локальную переменную, т.к. m_sparseSolidGrid семантически
+    //    относится к m_solidGrid.
+    SimpleSparseGrid sparseWalkableGrid =
+        Voxelizer::ConvertToSparseGrid(radiusFilteredGrid);
+
+    // 2. Считаем память для плотной сетки (результат фильтров).
+    //    Общее количество вокселей в сетке то же, что и у m_solidGrid.
+    size_t dense_memory_bytes = radiusFilteredGrid.solidVoxels.size() / 8;
+
+    // 3. Считаем память для разреженной сетки (только проходимые воксели).
+    size_t sparse_memory_bytes =
+        sparseWalkableGrid.solidVoxels.size() * sizeof(VoxelCoord);
+
+    const double kb_divisor = 1024.0;
+
+    qInfo(lcCore) << "DENSE grid total voxels (in grid volume):"
+                  << radiusFilteredGrid.solidVoxels.size();
+    qInfo(lcCore) << "DENSE grid memory usage (for walkable data):"
+                  << dense_memory_bytes / kb_divisor << "KB";
+    qInfo(lcCore) << "--------------------------------------------------";
+    qInfo(lcCore) << "SPARSE grid found walkable voxels:"
+                  << sparseWalkableGrid.solidVoxels.size();
+    qInfo(lcCore) << "SPARSE grid memory usage (for walkable data):"
+                  << sparse_memory_bytes / kb_divisor << "KB";
+    qInfo(lcCore) << "==================================================";
+  }
+  // =========================================================================
+  // === КОНЕЦ НОВОГО КОДА                                                 ===
+  // =========================================================================
+
+  // Создаем карту стоимостей на основе финальной проходимой сетки
   qInfo(lcCore) << "Assigning simple cost '1' to all walkable voxels...";
 
-  // 1. Создаем вектор стоимостей нужного размера, заполненный нулями
-  // (непроходимо).
   const size_t totalVoxels = (size_t)m_gridWidth * m_gridHeight * m_gridDepth;
   m_voxelCosts.assign(totalVoxels, 0);
 
-  // 2. Проходим по результату фильтра по радиусу (radiusFilteredGrid).
-  //    Если воксель в нем проходим (true), ставим ему стоимость 1 в
-  //    m_voxelCosts.
   for (size_t i = 0; i < radiusFilteredGrid.solidVoxels.size(); ++i) {
     if (radiusFilteredGrid.solidVoxels[i]) {
       m_voxelCosts[i] = 1;
     }
   }
-
-  // СТАРЫЙ КОД УДАЛЕН:
-  // const int agentMaxClimbInVoxels = ...
-  // m_voxelCosts = VoxelCoster::calculateCosts(radiusFilteredGrid,
-  // agentMaxClimbInVoxels);
 
   qInfo(lcCore) << "Full pipeline finished. NavMesh is ready.";
   return true;

@@ -72,6 +72,9 @@ private:
   /// @brief Карта всех препятствий для рейкастинга.
   VoxelGrid m_solidGrid;
 
+  /// @brief Разреженная версия m_solidGrid для сравнения и отладки.
+  SimpleSparseGrid m_sparseSolidGrid;
+
   /// @brief Финальная карта стоимостей для поиска пути.
   std::vector<uint8_t> m_voxelCosts;
 

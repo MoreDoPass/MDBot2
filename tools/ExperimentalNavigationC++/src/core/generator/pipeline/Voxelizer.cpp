@@ -375,3 +375,45 @@ VoxelGrid Voxelizer::filterByAgentRadius(const VoxelGrid &heightFilteredGrid,
                 << final_count;
   return finalGrid;
 }
+
+SimpleSparseGrid Voxelizer::ConvertToSparseGrid(const VoxelGrid &denseGrid) {
+  // 1. Создаем пустой объект нашей новой структуры,
+  //    куда будем складывать результаты.
+  SimpleSparseGrid sparseGrid;
+
+  // Логируем начало процесса
+  qInfo(lcCore) << "Converting dense grid to simple sparse format...";
+
+  // Проверяем, есть ли вообще что конвертировать.
+  if (denseGrid.solidVoxels.empty()) {
+    qWarning(lcCore)
+        << "Input denseGrid is empty. Returning empty sparse grid.";
+    return sparseGrid;
+  }
+
+  // 2. Проходим в тройном цикле по всем возможным координатам (x, y, z),
+  //    как мы это делали в других фильтрах.
+  for (int y = 0; y < denseGrid.gridHeight; ++y) {
+    for (int z = 0; z < denseGrid.gridDepth; ++z) {
+      for (int x = 0; x < denseGrid.gridWidth; ++x) {
+
+        // 3. Получаем индекс вокселя в старом, плотном массиве.
+        const size_t index = denseGrid.getVoxelIndex(x, y, z);
+
+        // 4. Проверяем, "твердый" ли этот воксель.
+        if (denseGrid.solidVoxels[index]) {
+          // 5. ЕСЛИ ДА - создаем координату и добавляем ее в наш
+          //    список в разреженной сетке.
+          sparseGrid.solidVoxels.push_back({x, y, z});
+        }
+      }
+    }
+  }
+
+  // Логируем результат.
+  qInfo(lcCore) << "Conversion complete. Found" << sparseGrid.solidVoxels.size()
+                << "solid voxels.";
+
+  // 6. Возвращаем заполненную структуру.
+  return sparseGrid;
+}

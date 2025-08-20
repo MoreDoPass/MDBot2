@@ -2,6 +2,7 @@
 
 #include <Eigen/Dense> // Подключаем главную часть библиотеки Eigen
 #include <functional>  // Нужно для std::hash
+#include <vector>
 
 /**
  * @file Types.h
@@ -34,6 +35,11 @@ struct VoxelCoord {
   bool operator==(const VoxelCoord &other) const {
     return x == other.x && y == other.y && z == other.z;
   }
+};
+
+struct SimpleSparseGrid {
+  /// @brief Вектор, содержащий координаты всех твердых вокселей на карте.
+  std::vector<VoxelCoord> solidVoxels;
 };
 
 // --- Хэш-функция для VoxelCoord ---

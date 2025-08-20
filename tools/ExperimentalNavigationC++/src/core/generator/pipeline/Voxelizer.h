@@ -76,4 +76,14 @@ public:
   static VoxelGrid filterByAgentRadius(const VoxelGrid &heightFilteredGrid,
                                        const VoxelGrid &solidGrid,
                                        double agentRadius, double cellSize);
+
+  /**
+   * @brief Конвертирует плотную воксельную сетку в простую разреженную.
+   * @details Проходит по плотной сетке (VoxelGrid), находит все 'true' воксели
+   *          и сохраняет их координаты в простой список (SimpleSparseGrid).
+   * @param denseGrid Плотная сетка VoxelGrid, которую нужно конвертировать.
+   * @return Новая разреженная структура SimpleSparseGrid, где только "true"
+   * воксели и их координаты
+   */
+  static SimpleSparseGrid ConvertToSparseGrid(const VoxelGrid &denseGrid);
 };
