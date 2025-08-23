@@ -11,6 +11,7 @@
 #include "core/Bot/Movement/Teleport/TeleportExecutor.h"
 #include "core/Bot/Character/CharacterHook.h"
 #include "core/Bot/Movement/Teleport/TeleportStepFlagHook.h"
+#include "core/Bot/GameObjectManager/GameObjectManager.h"
 
 /**
  * @class AppContext
@@ -79,6 +80,13 @@ class AppContext
      */
     uintptr_t getTeleportFlagBufferAddress() const;
 
+    void updateGameObjectManager();
+    MemoryManager* getMemoryManager() const
+    {
+        return m_memoryManager.get();
+    }
+    GameObject* getTargetObject();
+
    private:
     /// @brief Указатель на менеджер памяти из MDBot2.
     std::unique_ptr<MemoryManager> m_memoryManager;
@@ -86,6 +94,8 @@ class AppContext
     std::unique_ptr<HookManager> m_hookManager;
     /// @brief Указатель на исполнителя телепортации из MDBot2.
     std::unique_ptr<TeleportExecutor> m_teleportExecutor;
+    /// @brief Указатель на менеджер игровых обьектов
+    std::unique_ptr<GameObjectManager> m_gameObjectManager;
 
     /// @brief PID подключенного процесса.
     uint32_t m_pid = 0;

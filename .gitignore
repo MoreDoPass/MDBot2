@@ -33,3 +33,7 @@ CMakeFiles/
 .cache/
 
 # User-specific files 
+
+# Игнорировать системные файлы Windows
+**/desktop.ini
+Thumbs.db

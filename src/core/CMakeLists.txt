@@ -30,8 +30,10 @@ target_link_libraries(Core_ProcessManager PUBLIC Qt6::Core)
 # --- Библиотека Utils (содержит только заголовки) ---
 add_library(Core_Utils INTERFACE)
 target_include_directories(Core_Utils INTERFACE
-    ${CORE_INCLUDE_DIR}
+    # Указываем путь относительно текущего CMakeLists.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
 
 # --- Библиотека Navigation ---
 add_library(Core_Navigation STATIC
@@ -46,7 +48,7 @@ target_link_libraries(Core_Navigation PUBLIC
     RecastNavigation::Recast
     RecastNavigation::Detour
     RecastNavigation::DetourTileCache
-    Core_Utils
+    Core_Utils # Связываем с Core_Utils, чтобы получить пути к заголовкам
 )
 
 # --- Библиотека HookManager ---
@@ -91,5 +93,19 @@ target_include_directories(Core_Teleport PUBLIC
 )
 target_link_libraries(Core_Teleport PUBLIC
     Core_HookManager
+    Qt6::Core
+)
+
+add_library(Core_GameObject STATIC
+    Bot/GameObjectManager/GameObjectManager.cpp
+    Bot/GameObjectManager/Target/TargetHook.cpp
+    # ... другие cpp-файлы из этой папки, если появятся ...
+)
+target_include_directories(Core_GameObject PUBLIC
+    ${CORE_INCLUDE_DIR}
+)
+target_link_libraries(Core_GameObject PUBLIC
+    Core_MemoryManager
+    Core_Utils
     Qt6::Core
 )

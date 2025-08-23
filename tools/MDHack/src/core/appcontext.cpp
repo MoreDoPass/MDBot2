@@ -29,7 +29,8 @@ bool AppContext::attachToProcess(uint32_t pid, const std::wstring& processName)
             detach();  // Очищаем все
             return false;
         }
-
+        // СОЗДАЕМ GameObjectManager
+        m_gameObjectManager = std::make_unique<GameObjectManager>(m_memoryManager.get());
         m_pid = pid;
         qCInfo(logAppContext) << "Successfully attached to process" << pid;
 
@@ -165,4 +166,22 @@ std::optional<Player> AppContext::getPlayer()
 uintptr_t AppContext::getTeleportFlagBufferAddress() const
 {
     return reinterpret_cast<uintptr_t>(m_teleportFlagBuffer);
+}
+
+void AppContext::updateGameObjectManager()
+{
+    if (m_gameObjectManager)
+    {
+        qCDebug(logAppContext) << "Forcing GameObjectManager update...";
+        m_gameObjectManager->update();
+    }
+}
+
+GameObject* AppContext::getTargetObject()
+{
+    if (m_gameObjectManager)
+    {
+        return m_gameObjectManager->getTargetObject();
+    }
+    return nullptr;
 }

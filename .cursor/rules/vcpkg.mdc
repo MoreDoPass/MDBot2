@@ -1,6 +1,0 @@
----
-description: This rule is helpful for CMakelists, vcpkg
-globs: 
-alwaysApply: false
----
-All libraries are installed via vcpkg, and they are here "C:\Dev\vcpkg\installed". I mean Qt, boost, capstone and other stuff, only there.

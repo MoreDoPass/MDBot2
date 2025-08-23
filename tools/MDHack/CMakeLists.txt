@@ -40,6 +40,7 @@ target_link_libraries(MDHack PRIVATE
     Core_HookManager
     Core_Character
     Core_Teleport
+    Core_GameObject
 )
 
 # --- Копирование плагина платформы Qt (qwindowsd.dll) для Debug-сборки ---

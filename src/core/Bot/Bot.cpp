@@ -1,6 +1,7 @@
 #include "Bot.h"
 #include "core/Bot/Character/Character.h"
 #include "core/Navigation/PathfindingService.h"  // Для инициализации сервиса
+#include "core/Bot/GameObjectManager/GameObjectManager.h"
 #include <QThread>
 #include <QLoggingCategory>
 
@@ -26,6 +27,7 @@ Bot::Bot(qint64 processId, const QString& processName, QObject* parent)
             qCInfo(logBot) << "Создан объект Bot и MemoryManager для PID:" << m_processId;
             m_character = new Character(&m_memoryManager, this);
             m_movementManager = new MovementManager(&m_memoryManager, m_character, this);
+            m_gameObjectManager = new GameObjectManager(&m_memoryManager, this);
 
             // Запускаем сервисы
             PathfindingService::getInstance().start();
@@ -47,6 +49,7 @@ Bot::~Bot()
         // Останавливаем сервисы
         PathfindingService::getInstance().stop();
 
+        delete m_gameObjectManager;
         delete m_character;
         delete m_movementManager;
         // Все ресурсы MemoryManager освободятся автоматически
@@ -76,6 +79,11 @@ MovementManager* Bot::movementManager() const
     return m_movementManager;
 }
 
+GameObjectManager* Bot::gameObjectManager() const
+{
+    return m_gameObjectManager;
+}
+
 void Bot::run()
 {
     if (m_running)
@@ -94,6 +102,15 @@ void Bot::run()
                     qCInfo(logBot) << "Старт основного цикла бота для PID:" << m_processId;
                     while (m_running)
                     {
+                        // 5. ВЫЗЫВАТЬ UPDATE В ОСНОВНОМ ЦИКЛЕ
+                        if (m_character)
+                        {
+                            m_character->updateFromMemory();
+                        }
+                        if (m_gameObjectManager)
+                        {
+                            m_gameObjectManager->update();
+                        }
                         // Здесь основная логика бота
                         QThread::msleep(100);  // Пауза между итерациями
                     }

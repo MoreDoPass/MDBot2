@@ -8,6 +8,7 @@
 #include "core/HookManager/HookManager.h"
 #include "core/Bot/Character/Character.h"
 #include "core/Bot/Movement/MovementManager.h"
+#include "core/Bot/GameObjectManager/GameObjectManager.h"
 
 /**
  * @brief Класс Bot — основной класс для управления одним персонажем WoW.
@@ -43,6 +44,7 @@ class Bot : public QObject
      * @brief Получить менеджер движения
      */
     MovementManager* movementManager() const;
+    GameObjectManager* gameObjectManager() const;  // <-- 2. ДОБАВИТЬ ГЕТТЕР
 
    public slots:
     /**
@@ -65,6 +67,7 @@ class Bot : public QObject
     HookManager m_hookManager;
     Character* m_character = nullptr;
     MovementManager* m_movementManager = nullptr;
+    GameObjectManager* m_gameObjectManager = nullptr;  ///< 3. ДОБАВИТЬ УКАЗАТЕЛЬ
     bool m_running = false;
     QThread* m_thread = nullptr;
 };

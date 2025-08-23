@@ -57,6 +57,7 @@ target_link_libraries(MDBot2 PRIVATE
     Core_Navigation
     Core_Teleport # <-- ДОБАВЛЕНА НОВАЯ БИБЛИОТЕКА
     Core_Character
+    Core_GameObject
 )
 
 # Указываем, где искать заголовочные файлы
