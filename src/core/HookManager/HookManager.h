@@ -7,7 +7,7 @@
 #include <QByteArray>
 #include <QMutex>
 #include <cstdint>
-#include "MemoryManager/MemoryManager.h"
+#include "core/MemoryManager/MemoryManager.h"
 
 Q_DECLARE_LOGGING_CATEGORY(hookManagerLog)
 

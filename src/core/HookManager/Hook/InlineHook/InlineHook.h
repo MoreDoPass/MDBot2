@@ -1,9 +1,9 @@
 #ifndef INLINEHOOK_H
 #define INLINEHOOK_H
 
-#include "HookManager/Hook/Hook.h"
+#include "core/HookManager/Hook/Hook.h"
 #include <QLoggingCategory>
-#include "MemoryManager/MemoryManager.h"
+#include "core/MemoryManager/MemoryManager.h"
 
 /**
  * @brief Класс для реализации inline (trampoline) хука.

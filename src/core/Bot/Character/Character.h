@@ -3,9 +3,9 @@
 #include <QObject>
 #include <QLoggingCategory>
 #include <QString>
-#include "MemoryManager/MemoryManager.h"
+#include "core/MemoryManager/MemoryManager.h"
 #include "CharacterHook.h"
-#include "core/Utils/Vector.h"  // Добавляем Vector3
+#include "core/Utils/Vector.h"
 
 /**
  * @brief Категория логирования для Character.

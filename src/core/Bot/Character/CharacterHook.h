@@ -1,6 +1,6 @@
 #pragma once
 
-#include "HookManager/Hook/InlineHook/InlineHook.h"
+#include "core/HookManager/Hook/InlineHook/InlineHook.h"
 #include <QLoggingCategory>
 
 /**

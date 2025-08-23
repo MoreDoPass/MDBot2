@@ -1,0 +1,11 @@
+BasedOnStyle: Google
+BreakBeforeBraces: Allman         # Скобки на новой строке (Allman)
+IndentWidth: 4                    # Отступ 4 пробела
+TabWidth: 4                       # Ширина табуляции 4 (если где-то используются табы)
+UseTab: Never                     # Использовать только пробелы
+ColumnLimit: 120                  # Максимальная длина строки
+AllowShortFunctionsOnASingleLine: Empty
+Language: Cpp
+SortIncludes: false
+SpacesInParentheses: false        # Без пробелов внутри скобок
+SpaceBeforeParens: ControlStatements # Пробел перед скобкой только у if/while/for

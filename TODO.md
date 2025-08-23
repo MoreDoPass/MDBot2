@@ -1,43 +1,47 @@
-V. Переход на отдельный навигационный сервис (NavService) — План работ
-1. Архитектура и подготовка
-[ ] 1.1. Создать новый проект NavService
-[ ] Разместить в tools/NavService/ (или tools/NavmeshNavigation/ — выбрать финальное имя)
-[ ] Сборка только в x64 (64-бит)
-[ ] Минимальный CMake/VS проект, только консольное приложение
-[ ] 1.2. Определить протокол обмена
-[ ] Описать структуру запроса и ответа (например, JSON или бинарный struct)
-[ ] Протокол: Named Pipes (Windows) — \\.\pipe\MDBotNavService
-2. Реализация NavService
-[ ] 2.1. Импортировать/скопировать код навигации
-[ ] Перенести логику загрузки NavMesh, поиска пути, преобразования координат из текущего NavMeshManager/Pathfinder
-[ ] Минимизировать зависимости (только Recast/Detour, минимум Qt)
-[ ] 2.2. Реализовать сервер Named Pipe
-[ ] Ожидание подключения клиента
-[ ] Чтение запроса, выполнение поиска пути, отправка ответа
-[ ] 2.3. Логирование и обработка ошибок
-[ ] Подробные логи (QLoggingCategory или std::cout)
-[ ] Обработка невалидных запросов, ошибок загрузки тайлов и т.д.
-3. Изменения в основном боте (MDBot2)
-[ ] 3.1. Реализовать клиент Named Pipe
-[ ] Подключение к \\.\pipe\MDBotNavService
-[ ] Формирование и отправка запроса на поиск пути
-[ ] Получение и разбор ответа
-[ ] 3.2. Удалить/заменить старую логику PathfindingService/NavMeshManager
-[ ] Вся логика поиска пути теперь через IPC
-[ ] Оставить только код для отправки запроса и применения результата
-[ ] 3.3. Обработка ошибок и fallback
-[ ] Если сервис не запущен — выводить ошибку пользователю
-[ ] Возможность переподключения
-4. Тестирование и отладка
-[ ] 4.1. Юнит-тесты NavService
-[ ] Тесты на загрузку navmesh, поиск простых маршрутов
-[ ] 4.2. Интеграционные тесты
-[ ] Проверить end-to-end: бот → сервис → бот
-[ ] Проверить работу с разными картами, большими маршрутами
-[ ] 4.3. Логирование и профилирование
-[ ] Оценить скорость, стабильность, нагрузку
-5. Документация
-[ ] 5.1. README по запуску NavService
-[ ] Как собрать, как запускать, параметры командной строки
-[ ] 5.2. Описание протокола
-[ ] Формат сообщений, примеры, возможные ошибки
+План Миграции и Разделения MDHack на Core и GUI
+Этап 1: "Централизация Ядра" — Создание общей библиотеки Core_Teleport
+(Цель: собрать всю низкоуровневую логику телепортации из MDHack в единую, переиспользуемую библиотеку внутри MDBot2.)
+Создать новую статическую библиотеку Core_Teleport в CMake.
+В MDBot2/src/core/CMakeLists.txt добавить новую цель add_library(Core_Teleport STATIC ...) по аналогии с Core_MemoryManager.
+Убедиться, что эта библиотека будет линковаться с Core_MemoryManager, Core_HookManager, и Qt6::Core.
+Перенести и адаптировать классы из MDHack в новую библиотеку.
+Перенести TeleportStepFlagHook.h/.cpp из mdhack/src/core/teleport в mdbot2/src/core/Bot/Movement/Teleport/.
+Рефакторинг TeleportStepFlagHook:
+Он больше не наследуется от MDHack::InlineHook. Теперь он должен наследоваться от MDBot2::InlineHook.
+Удалить метод createTrampoline(), вместо него реализовать virtual bool generateTrampoline() override;, как того требует MDBot2::InlineHook. Логика останется та же, но в другом методе.
+Адаптировать его для работы с MDBot2::MemoryManager.
+Перенести teleport.h/.cpp из mdhack/src/core/teleport в ту же папку mdbot2/src/core/Bot/Movement/Teleport/.
+Рефакторинг Teleport -> TeleportExecutor:
+Переименовать класс в TeleportExecutor, чтобы не путать его с будущим GUI-виджетом.
+Заменить зависимость от MDHack::Player и MDHack::AppContext на MDBot2::Character и MDBot2::MemoryManager. Метод setPositionStepwise должен будет принимать их.
+Полностью удалить дубликаты из MDHack.
+Удалить из MDHack классы MemoryManager, HookManager, IHook, InlineHook, RegisterInlineHook. Все они теперь будут браться из MDBot2/src/core/.
+Удалить Player, так как в MDBot2 есть более полный класс Character.
+Удалить ProcessManager (есть в MDBot2).
+Проверка сборки MDBot2.
+Убедиться, что MDBot2 по-прежнему собирается, теперь уже с новой, но пока не используемой библиотекой Core_Teleport.
+Этап 2: "Разделение Сборки" — Создание MDHack.exe как отдельного executable
+(Цель: Научить CMake собирать MDHack.exe как отдельное приложение, которое использует созданные на 1-м этапе core-библиотеки.)
+Создать новый add_executable для MDHack.
+В основном CMakeLists.txt проекта MDBot2 добавить add_subdirectory(tools/MDHack).
+Создать MDBot2/tools/MDHack/CMakeLists.txt.
+В нем определить add_executable(MDHack src/main.cpp src/gui/mainwindow.cpp ...) и перечислить все его .cpp файлы.
+Настроить линковку MDHack с core-библиотеками.
+В MDBot2/tools/MDHack/CMakeLists.txt добавить target_link_libraries(MDHack PRIVATE ...).
+В список библиотек включить Core_MemoryManager, Core_HookManager, Core_Teleport, а также Qt6::Widgets, capstone::capstone.
+Адаптировать код MDHack для работы с новыми библиотеками.
+Изменить AppContext в MDHack так, чтобы он не создавал свои MemoryManager и HookManager, а использовал классы из Core_ библиотек. AppContext останется как удобная обертка для MDHack.exe.
+В mainwindow.cpp MDHack изменить вызов телепортации так, чтобы он использовал новый TeleportExecutor из Core_Teleport.
+Проверить сборку всего проекта.
+После этого шага в build директории должны появиться два файла: MDBot2.exe и MDHack.exe.
+Этап 3: "Интеграция API в Бота" — Подключение телепорта к MovementManager
+(Цель: Научить бота использовать Core_Teleport для своих нужд.)
+Добавить TeleportExecutor в класс Bot.
+В MDBot2/src/core/Bot/Bot.h добавить #include "core/Bot/Movement/Teleport/TeleportExecutor.h".
+Добавить член класса std::unique_ptr<TeleportExecutor> m_teleportExecutor.
+Инициализировать его в конструкторе Bot::Bot().
+Пролинковать MDBot2 с Core_Teleport.
+В основном CMakeLists.txt добавить Core_Teleport в target_link_libraries(MDBot2 PRIVATE ...).
+Создать API для MovementManager.
+В MovementManager добавить логику, которая при определенных условиях (например, включенном чекбоксе и большой дистанции) будет вызывать m_bot->teleportExecutor()->setPositionStepwise(...) вместо поиска пути.
+Добавить сам чекбокс "Использовать телепорт" в MainWidget или CharacterWidget, чтобы можно было это включать.

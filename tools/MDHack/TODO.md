@@ -1,0 +1,1 @@
+Внедрить process selector
