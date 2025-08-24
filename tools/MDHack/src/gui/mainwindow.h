@@ -1,16 +1,26 @@
+#pragma once
+
 #include <QMainWindow>
 #include "processlistdialog.h"
 #include "core/appcontext.h"
-#include <qtreewidget.h>
 #include "core/locations/locationmanager.h"
-#include <QAbstractNativeEventFilter>  // Для обработки сообщений Windows
+#include <QAbstractNativeEventFilter>
+
+// Прямые объявления, чтобы не включать лишние заголовки
+class QTreeWidget;
+class QTreeWidgetItem;
+
+// --- Подключаем windows.h последним, чтобы избежать конфликтов ---
+#if defined(Q_OS_WIN)
 #include <windows.h>
+#endif
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
    public:
     explicit MainWindow(QWidget* parent = nullptr);
-    ~MainWindow();
+    ~MainWindow() override;
 
    public slots:
     void onSelectProcess();
@@ -19,33 +29,27 @@ class MainWindow : public QMainWindow
     void onTreeContextMenu(const QPoint& pos);
     void onTreeChanged();
     void onTreeItemDoubleClicked(QTreeWidgetItem* item, int column);
-
-    /**
-     * @brief [НОВЫЙ СЛОТ] Слот, который выполняется при нажатии хоткея телепорта к цели.
-     * @details Выполняет всю логику: получает цель, ее координаты и вызывает TeleportExecutor.
-     */
     void onTeleportToTargetHotkeyPressed();
 
    protected:
-    /**
-     * @brief [НОВЫЙ МЕТОД] Перехватывает нативные события окна (сообщения Windows).
-     * @details Мы используем его для отлова сообщения WM_HOTKEY, которое система
-     *          посылает нашему окну при нажатии зарегистрированного глобального хоткея.
-     * @param eventType Тип события (для Windows это "windows_generic_MSG").
-     * @param message Указатель на структуру сообщения (в нашем случае MSG*).
-     * @param result Указатель на результат обработки.
-     * @return true, если мы обработали событие и оно не должно идти дальше.
-     */
     bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
 
    private:
-    AppContext* appContext = nullptr;  // Контекст выбранного процесса
+    /**
+     * @brief Обновляет внешний вид элемента дерева (иконку и подсказку) в зависимости от наличия описания.
+     * @param item Указатель на элемент, который нужно обновить.
+     */
+    void updateItemAppearance(QTreeWidgetItem* item);
+
+    /**
+     * @brief Рекурсивно обходит все элементы дерева и обновляет их внешний вид.
+     * @param parentItem Родительский элемент, с которого начать обход.
+     */
+    void updateAllItemsAppearance(QTreeWidgetItem* parentItem);
+
+    AppContext* appContext = nullptr;
     QTreeWidget* treeWidget = nullptr;
     LocationManager locationManager;
 
-    /**
-     * @brief [НОВАЯ ПЕРЕМЕННАЯ] Уникальный идентификатор нашего хоткея.
-     * @details Нужен для функций RegisterHotKey и UnregisterHotKey.
-     */
     const int HOTKEY_ID_TELEPORT_TO_TARGET = 1;
 };

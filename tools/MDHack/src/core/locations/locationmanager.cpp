@@ -3,8 +3,33 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QLoggingCategory>
 
-// --- НОВАЯ, ПРАВИЛЬНАЯ ЛОГИКА С МАССИВАМИ ---
+// Создаем категорию логирования для этого файла
+Q_LOGGING_CATEGORY(logLocManager, "mdhack.locationmanager")
+
+// --- НОВАЯ, ПРАВИЛЬНАЯ ЛОГИКА С ВЕРСИОНИРОВАНИЕМ ---
+
+// Определяем константы для ключей JSON и ролей данных, чтобы избежать опечаток
+namespace LocationKeys
+{
+const QString Name = "name";
+const QString Description = "description";  // <--- Новый ключ
+const QString X = "x";
+const QString Y = "y";
+const QString Z = "z";
+const QString Children = "children";
+const QString Version = "version";
+const QString Locations = "locations";
+}  // namespace LocationKeys
+
+namespace LocationRoles
+{
+const int RoleX = Qt::UserRole;
+const int RoleY = Qt::UserRole + 1;
+const int RoleZ = Qt::UserRole + 2;
+const int RoleDescription = Qt::UserRole + 3;  // <--- Новая роль для данных
+}  // namespace LocationRoles
 
 void buildTree(const QJsonArray& jsonArray, QTreeWidgetItem* parentItem);
 
@@ -15,24 +40,27 @@ void buildTreeFromObject(const QJsonObject& jsonObj, QTreeWidgetItem* parentItem
 {
     auto* newItem = new QTreeWidgetItem(parentItem);
 
-    // 1. Устанавливаем имя из поля "name"
-    if (jsonObj.contains("name") && jsonObj["name"].isString())
+    if (jsonObj.contains(LocationKeys::Name))
     {
-        newItem->setText(0, jsonObj["name"].toString());
+        newItem->setText(0, jsonObj[LocationKeys::Name].toString());
     }
 
-    // 2. Устанавливаем координаты из полей "x", "y", "z"
-    if (jsonObj.contains("x") && jsonObj.contains("y") && jsonObj.contains("z"))
+    if (jsonObj.contains(LocationKeys::X) && jsonObj.contains(LocationKeys::Y) && jsonObj.contains(LocationKeys::Z))
     {
-        newItem->setData(0, Qt::UserRole, jsonObj["x"].toDouble());
-        newItem->setData(0, Qt::UserRole + 1, jsonObj["y"].toDouble());
-        newItem->setData(0, Qt::UserRole + 2, jsonObj["z"].toDouble());
+        newItem->setData(0, LocationRoles::RoleX, jsonObj[LocationKeys::X].toDouble());
+        newItem->setData(0, LocationRoles::RoleY, jsonObj[LocationKeys::Y].toDouble());
+        newItem->setData(0, LocationRoles::RoleZ, jsonObj[LocationKeys::Z].toDouble());
     }
 
-    // 3. Если есть дети (в виде массива), рекурсивно строим их
-    if (jsonObj.contains("children") && jsonObj["children"].isArray())
+    // Пытаемся прочитать описание. Если его нет - ничего страшного.
+    if (jsonObj.contains(LocationKeys::Description))
     {
-        buildTree(jsonObj["children"].toArray(), newItem);
+        newItem->setData(0, LocationRoles::RoleDescription, jsonObj[LocationKeys::Description].toString());
+    }
+
+    if (jsonObj.contains(LocationKeys::Children) && jsonObj[LocationKeys::Children].isArray())
+    {
+        buildTree(jsonObj[LocationKeys::Children].toArray(), newItem);
     }
 }
 
@@ -61,21 +89,25 @@ QJsonArray buildJson(QTreeWidgetItem* parentItem)
         QTreeWidgetItem* child = parentItem->child(i);
         QJsonObject childNode;
 
-        // 1. Сохраняем имя в поле "name"
-        childNode["name"] = child->text(0);
+        childNode[LocationKeys::Name] = child->text(0);
 
-        // 2. Сохраняем координаты, если они есть
-        if (child->data(0, Qt::UserRole).isValid())
+        if (child->data(0, LocationRoles::RoleX).isValid())
         {
-            childNode["x"] = child->data(0, Qt::UserRole).toDouble();
-            childNode["y"] = child->data(0, Qt::UserRole + 1).toDouble();
-            childNode["z"] = child->data(0, Qt::UserRole + 2).toDouble();
+            childNode[LocationKeys::X] = child->data(0, LocationRoles::RoleX).toDouble();
+            childNode[LocationKeys::Y] = child->data(0, LocationRoles::RoleY).toDouble();
+            childNode[LocationKeys::Z] = child->data(0, LocationRoles::RoleZ).toDouble();
         }
 
-        // 3. Рекурсивно сохраняем детей
+        // Сохраняем описание, только если оно есть и не пустое
+        QVariant descData = child->data(0, LocationRoles::RoleDescription);
+        if (descData.isValid() && !descData.toString().isEmpty())
+        {
+            childNode[LocationKeys::Description] = descData.toString();
+        }
+
         if (child->childCount() > 0)
         {
-            childNode["children"] = buildJson(child);
+            childNode[LocationKeys::Children] = buildJson(child);
         }
 
         jsonArray.append(childNode);
@@ -91,39 +123,57 @@ bool LocationManager::loadFromFile(const QString& filename, QTreeWidget* treeWid
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
     {
         treeWidget->clear();
+        qCWarning(logLocManager) << "Could not open locations file for reading:" << filename;
         return false;
     }
 
-    QByteArray data = file.readAll();
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
     file.close();
+    treeWidget->clear();
 
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    // Теперь корневой элемент должен быть МАССИВОМ
-    if (!doc.isArray())
+    // --- УМНЫЙ ЗАГРУЗЧИК ---
+    if (doc.isArray())  // Если это старый формат (Версия 1)
     {
-        treeWidget->clear();
+        qCInfo(logLocManager) << "Loading old format (v1) locations file.";
+        buildTree(doc.array(), treeWidget->invisibleRootItem());
+    }
+    else if (doc.isObject())  // Если это новый формат (Версия 2)
+    {
+        qCInfo(logLocManager) << "Loading new format (v2) locations file.";
+        QJsonObject rootObj = doc.object();
+        if (rootObj.contains(LocationKeys::Locations) && rootObj[LocationKeys::Locations].isArray())
+        {
+            buildTree(rootObj[LocationKeys::Locations].toArray(), treeWidget->invisibleRootItem());
+        }
+    }
+    else  // Неизвестный формат
+    {
+        qCWarning(logLocManager) << "Unknown format for locations.json. Should be an object or an array.";
         return false;
     }
 
-    treeWidget->clear();
-    buildTree(doc.array(), treeWidget->invisibleRootItem());
     return true;
 }
 
 bool LocationManager::saveToFile(const QString& filename, QTreeWidget* treeWidget)
 {
-    // Результатом buildJson теперь будет массив
-    QJsonArray rootArray = buildJson(treeWidget->invisibleRootItem());
+    QJsonArray locationsArray = buildJson(treeWidget->invisibleRootItem());
 
-    QJsonDocument doc(rootArray);
+    // Создаем корневой объект-обертку
+    QJsonObject rootObject;
+    rootObject[LocationKeys::Version] = 2;  // Всегда сохраняем как Версию 2
+    rootObject[LocationKeys::Locations] = locationsArray;
+
+    QJsonDocument doc(rootObject);
     QFile file(filename);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
     {
+        qCCritical(logLocManager) << "Could not open locations file for writing:" << filename;
         return false;
     }
-    // Используем tojson(Compact), чтобы не раздувать файл
     file.write(doc.toJson(QJsonDocument::Indented));
     file.close();
+    qCInfo(logLocManager) << "Locations saved to file:" << filename;
     return true;
 }
 
