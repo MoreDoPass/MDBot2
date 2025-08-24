@@ -19,5 +19,5 @@ class MainWindow : public QMainWindow
 
    private:
     QTabWidget* tabWidget = nullptr;
-    void addProcessTab(const ProcessInfo& info);
+    void addProcessTab(const ProcessInfo& info, const QString& computerName);
 };

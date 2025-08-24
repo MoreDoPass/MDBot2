@@ -2,12 +2,13 @@
 #include "core/Bot/Character/Character.h"
 #include "core/Navigation/PathfindingService.h"  // Для инициализации сервиса
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
+#include "core/Bot/Hooks/GetComputerNameHook.h"
 #include <QThread>
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(logBot, "mdbot.bot")
 
-Bot::Bot(qint64 processId, const QString& processName, QObject* parent)
+Bot::Bot(qint64 processId, const QString& processName, const QString& computerNameToSet, QObject* parent)
     : QObject(parent),
       m_processId(processId),
       m_processName(processName),
@@ -20,11 +21,34 @@ Bot::Bot(qint64 processId, const QString& processName, QObject* parent)
     {
         if (!m_memoryManager.openProcess(static_cast<DWORD>(processId), processName.toStdWString()))
         {
-            qCCritical(logBot) << "Не удалось открыть процесс в MemoryManager для PID:" << m_processId;
+            qCCritical(logBot) << "Failed to open process with MemoryManager for PID:" << m_processId;
         }
         else
         {
-            qCInfo(logBot) << "Создан объект Bot и MemoryManager для PID:" << m_processId;
+            qCInfo(logBot) << "Bot object and MemoryManager created for PID:" << m_processId;
+
+            // --- УСТАНОВКА ХУКА НА ИМЯ КОМПЬЮТЕРА ---
+            if (!computerNameToSet.isEmpty())
+            {
+                qCInfo(logBot) << "Attempting to set computer name to:" << computerNameToSet;
+                m_computerNameHook =
+                    std::make_unique<GetComputerNameHook>(&m_memoryManager, computerNameToSet.toStdString());
+                if (m_computerNameHook->install())
+                {
+                    qCInfo(logBot) << "GetComputerNameHook installed successfully.";
+                }
+                else
+                {
+                    qCCritical(logBot) << "Failed to install GetComputerNameHook.";
+                    m_computerNameHook.reset();  // Очищаем, если установка не удалась
+                }
+            }
+            else
+            {
+                qCInfo(logBot) << "No computer name provided, skipping hook installation.";
+            }
+
+            // --- Остальная инициализация ---
             m_character = new Character(&m_memoryManager, this);
             m_movementManager = new MovementManager(&m_memoryManager, m_character, this);
             m_gameObjectManager = new GameObjectManager(&m_memoryManager, this);
@@ -35,7 +59,7 @@ Bot::Bot(qint64 processId, const QString& processName, QObject* parent)
     }
     catch (const std::exception& ex)
     {
-        qCCritical(logBot) << "Ошибка при создании Bot:" << ex.what();
+        qCCritical(logBot) << "Exception during Bot creation:" << ex.what();
     }
 }
 
@@ -43,8 +67,17 @@ Bot::~Bot()
 {
     try
     {
-        qCInfo(logBot) << "Уничтожение объекта Bot для процесса с PID:" << m_processId;
+        qCInfo(logBot) << "Destroying Bot object for process with PID:" << m_processId;
         stop();
+
+        // Снятие хука произойдет автоматически, когда unique_ptr m_computerNameHook будет уничтожен,
+        // но лучше сделать это явно для контроля порядка.
+        if (m_computerNameHook)
+        {
+            m_computerNameHook->uninstall();
+            m_computerNameHook.reset();
+            qCInfo(logBot) << "GetComputerNameHook uninstalled.";
+        }
 
         // Останавливаем сервисы
         PathfindingService::getInstance().stop();
@@ -56,11 +89,11 @@ Bot::~Bot()
     }
     catch (const std::exception& ex)
     {
-        qCCritical(logBot) << "Ошибка при уничтожении Bot:" << ex.what();
+        qCCritical(logBot) << "Exception during Bot destruction:" << ex.what();
     }
     catch (...)
     {
-        qCCritical(logBot) << "Неизвестная ошибка при уничтожении Bot";
+        qCCritical(logBot) << "Unknown exception during Bot destruction";
     }
 }
 
@@ -112,7 +145,7 @@ void Bot::run()
                             m_gameObjectManager->update();
                         }
                         // Здесь основная логика бота
-                        QThread::msleep(100);  // Пауза между итерациями
+                        QThread::msleep(1000);  // Пауза между итерациями
                     }
                     qCInfo(logBot) << "Бот завершил работу для PID:" << m_processId;
                 }

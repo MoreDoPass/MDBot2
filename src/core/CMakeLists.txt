@@ -55,6 +55,7 @@ target_link_libraries(Core_Navigation PUBLIC
 add_library(Core_HookManager STATIC
     HookManager/HookManager.cpp
     HookManager/Hook/InlineHook/InlineHook.cpp
+    Bot/Hooks/GetComputerNameHook.cpp
 )
 target_include_directories(Core_HookManager PUBLIC
     ${CORE_INCLUDE_DIR}

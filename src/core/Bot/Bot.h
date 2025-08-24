@@ -3,12 +3,16 @@
 #include <QObject>
 #include <QLoggingCategory>
 #include <QThread>
-#include <QString>  // Для QString
+#include <QString>
+#include <memory>  // Для std::unique_ptr
 #include "core/MemoryManager/MemoryManager.h"
 #include "core/HookManager/HookManager.h"
 #include "core/Bot/Character/Character.h"
 #include "core/Bot/Movement/MovementManager.h"
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
+
+// Прямое объявление, чтобы не включать полный заголовок
+class GetComputerNameHook;
 
 /**
  * @brief Класс Bot — основной класс для управления одним персонажем WoW.
@@ -26,9 +30,11 @@ class Bot : public QObject
      * @brief Конструктор Bot.
      * @param processId PID процесса.
      * @param processName Имя процесса (например, "run.exe").
+     * @param computerNameToSet Имя компьютера, которое будет установлено через хук. Если пустое, хук не ставится.
      * @param parent Родительский QObject.
      */
-    explicit Bot(qint64 processId, const QString& processName, QObject* parent = nullptr);
+    explicit Bot(qint64 processId, const QString& processName, const QString& computerNameToSet,
+                 QObject* parent = nullptr);
     ~Bot();
 
     /**
@@ -44,7 +50,7 @@ class Bot : public QObject
      * @brief Получить менеджер движения
      */
     MovementManager* movementManager() const;
-    GameObjectManager* gameObjectManager() const;  // <-- 2. ДОБАВИТЬ ГЕТТЕР
+    GameObjectManager* gameObjectManager() const;
 
    public slots:
     /**
@@ -67,8 +73,11 @@ class Bot : public QObject
     HookManager m_hookManager;
     Character* m_character = nullptr;
     MovementManager* m_movementManager = nullptr;
-    GameObjectManager* m_gameObjectManager = nullptr;  ///< 3. ДОБАВИТЬ УКАЗАТЕЛЬ
+    GameObjectManager* m_gameObjectManager = nullptr;
     bool m_running = false;
     QThread* m_thread = nullptr;
+
+    /// @brief Умный указатель на хук для подмены имени компьютера.
+    std::unique_ptr<GetComputerNameHook> m_computerNameHook;
 };
 Q_DECLARE_LOGGING_CATEGORY(logBot)

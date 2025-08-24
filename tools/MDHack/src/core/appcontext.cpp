@@ -1,5 +1,6 @@
 #include "appcontext.h"
 #include <QLoggingCategory>
+#include "core/Bot/Hooks/GetComputerNameHook.h"
 
 // Создаем локальную категорию логирования для AppContext
 Q_LOGGING_CATEGORY(logAppContext, "mdhack.appcontext")
@@ -14,7 +15,7 @@ AppContext::~AppContext()
 /**
  * @brief Подключается к процессу и устанавливает хуки.
  */
-bool AppContext::attachToProcess(uint32_t pid, const std::wstring& processName)
+bool AppContext::attachToProcess(uint32_t pid, const std::wstring& processName, const QString& computerNameToSet)
 {
     // Если уже были подключены, сначала отключаемся
     detach();
@@ -29,15 +30,40 @@ bool AppContext::attachToProcess(uint32_t pid, const std::wstring& processName)
             detach();  // Очищаем все
             return false;
         }
-        // СОЗДАЕМ GameObjectManager
-        m_gameObjectManager = std::make_unique<GameObjectManager>(m_memoryManager.get());
         m_pid = pid;
         qCInfo(logAppContext) << "Successfully attached to process" << pid;
 
-        // 2. Создаем HookManager, передав ему наш MemoryManager
-        m_hookManager = std::make_unique<HookManager>(m_memoryManager.get());
+        // 2. УСТАНОВКА ХУКА НА ИМЯ КОМПЬЮТЕРА (если оно указано)
+        if (!computerNameToSet.isEmpty())
+        {
+            qCInfo(logAppContext) << "Attempting to set computer name via hook to:" << computerNameToSet;
+            try
+            {
+                m_computerNameHook =
+                    std::make_unique<GetComputerNameHook>(m_memoryManager.get(), computerNameToSet.toStdString());
+                if (m_computerNameHook->install())
+                {
+                    qCInfo(logAppContext) << "GetComputerNameHook installed successfully.";
+                }
+                else
+                {
+                    qCCritical(logAppContext) << "Failed to install GetComputerNameHook.";
+                    m_computerNameHook.reset();  // Очищаем, если установка не удалась
+                }
+            }
+            catch (const std::exception& ex)
+            {
+                qCCritical(logAppContext) << "Failed to create GetComputerNameHook:" << ex.what();
+            }
+        }
+        else
+        {
+            qCInfo(logAppContext) << "No computer name provided, skipping hook installation.";
+        }
 
-        // 3. Выделяем память в целевом процессе для наших нужд
+        // 3. Создаем остальные менеджеры и хуки
+        m_gameObjectManager = std::make_unique<GameObjectManager>(m_memoryManager.get());
+        m_hookManager = std::make_unique<HookManager>(m_memoryManager.get());
         m_playerPtrBuffer = m_memoryManager->allocMemory(sizeof(uintptr_t));
         m_teleportFlagBuffer = m_memoryManager->allocMemory(sizeof(uint8_t));
 
@@ -53,37 +79,21 @@ bool AppContext::attachToProcess(uint32_t pid, const std::wstring& processName)
         qCInfo(logAppContext) << "Allocated memory: TeleportFlag at" << Qt::hex
                               << reinterpret_cast<uintptr_t>(m_teleportFlagBuffer);
 
-        // 4. Создаем хуки, используя компоненты из MDBot2
-
-        // Адрес для CharacterHook, универсальный для 3.3.5a
         const uintptr_t CHARACTER_HOOK_ADDR = 0x4FA64E;
         auto characterHook = std::make_unique<CharacterHook>(CHARACTER_HOOK_ADDR, m_memoryManager.get(),
                                                              reinterpret_cast<uintptr_t>(m_playerPtrBuffer));
-
-        // Адрес для TeleportStepFlagHook
         const uintptr_t TELEPORT_HOOK_ADDR = 0x7413F0;
         auto teleportHook = std::make_unique<TeleportStepFlagHook>(
             TELEPORT_HOOK_ADDR, reinterpret_cast<uintptr_t>(m_playerPtrBuffer),
             reinterpret_cast<uintptr_t>(m_teleportFlagBuffer), m_memoryManager.get());
 
-        // 5. Добавляем хуки в менеджер и устанавливаем их.
-        // HookManager из MDBot2 пока не поддерживает unique_ptr, поэтому используем .get()
-        // В будущем можно будет улучшить HookManager для передачи владения.
         m_hookManager->addHook(characterHook->address(), nullptr);
         m_hookManager->addHook(teleportHook->address(), nullptr);
-
-        // ВАЖНО: нужно будет реализовать установку хуков в HookManager. Пока предположим, что она есть.
-        // m_hookManager->installAll();
-        characterHook->install();  // Пока устанавливаем вручную
-        teleportHook->install();   // Пока устанавливаем вручную
-
-        // Запоминаем хуки, чтобы они не удалились после выхода из функции
-        // (Это временное решение, пока HookManager не управляет временем жизни)
-        // В идеале HookManager должен принимать std::unique_ptr
+        characterHook->install();
+        teleportHook->install();
         characterHook.release();
         teleportHook.release();
 
-        // 6. Создаем исполнителя телепортации
         m_teleportExecutor = std::make_unique<TeleportExecutor>(m_memoryManager.get());
 
         return true;
@@ -103,26 +113,23 @@ void AppContext::detach()
 {
     qCInfo(logAppContext) << "Detaching from process" << m_pid;
 
-    // Менеджер хуков должен сам снимать все хуки в своем деструкторе,
-    // но мы можем это сделать и явно для надежности.
+    // Снятие хука произойдет автоматически при уничтожении m_computerNameHook,
+    // но для контроля порядка лучше сделать это явно.
+    m_computerNameHook.reset();
+
     if (m_hookManager)
     {
         // m_hookManager->uninstallAll(); // Когда будет реализовано
     }
-
-    // Освобождаем память, выделенную в целевом процессе
     if (m_memoryManager && m_memoryManager->isProcessOpen())
     {
         if (m_playerPtrBuffer) m_memoryManager->freeMemory(m_playerPtrBuffer);
         if (m_teleportFlagBuffer) m_memoryManager->freeMemory(m_teleportFlagBuffer);
     }
-
-    // Порядок удаления важен: сначала объекты, использующие менеджеры,
-    // потом сами менеджеры. unique_ptr сделает это за нас.
     m_teleportExecutor.reset();
+    m_gameObjectManager.reset();  // <-- ДОБАВЛЕНО: очистка GOM
     m_hookManager.reset();
-    m_memoryManager.reset();  // Закроет хендл процесса в своем деструкторе
-
+    m_memoryManager.reset();
     m_pid = 0;
     m_playerPtrBuffer = nullptr;
     m_teleportFlagBuffer = nullptr;

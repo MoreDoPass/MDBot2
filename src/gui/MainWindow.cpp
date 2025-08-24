@@ -45,13 +45,18 @@ void MainWindow::onAddProcess()
         if (dlg.exec() == QDialog::Accepted)
         {
             ProcessInfo info = dlg.selectedProcess();
+            QString computerName = dlg.computerName();  // <-- Получаем имя компьютера из диалога
+
             if (info.pid != 0)
             {
-                addProcessTab(info);
+                addProcessTab(info, computerName);  // <-- Передаем его дальше
                 qCInfo(mainWindowLog) << "Process added PID:" << info.pid
-                                      << ", name:" << QString::fromStdWString(info.name);
-                LogWindow::appendLog(
-                    QString("Process added: PID %1, name %2").arg(info.pid).arg(QString::fromStdWString(info.name)));
+                                      << ", name:" << QString::fromStdWString(info.name)
+                                      << ", computerName:" << computerName;
+                LogWindow::appendLog(QString("Process added: PID %1, name %2, computerName: %3")
+                                         .arg(info.pid)
+                                         .arg(QString::fromStdWString(info.name))
+                                         .arg(computerName));
             }
             else
             {
@@ -79,12 +84,12 @@ void MainWindow::onShowLogWindow()
     LogWindow::instance()->activateWindow();
 }
 
-void MainWindow::addProcessTab(const ProcessInfo& info)
+void MainWindow::addProcessTab(const ProcessInfo& info, const QString& computerName)
 {
     try
     {
-        // Создаём объект Bot с PID процесса (только через new!)
-        Bot* bot = new Bot(static_cast<qint64>(info.pid), QString::fromStdWString(info.name));
+        // Создаём объект Bot с PID процесса и именем компьютера (только через new!)
+        Bot* bot = new Bot(static_cast<qint64>(info.pid), QString::fromStdWString(info.name), computerName);
         if (!bot)
         {
             qCCritical(mainWindowLog) << "Не удалось создать объект Bot для PID:" << info.pid;
@@ -96,10 +101,14 @@ void MainWindow::addProcessTab(const ProcessInfo& info)
         // Создаём поток для бота
         QThread* botThread = new QThread(this);  // Поток удалится вместе с MainWindow
         bot->moveToThread(botThread);
-        connect(botThread, &QThread::started, bot, &Bot::run);
+
+        // УДАЛЕНО: connect(botThread, &QThread::started, bot, &Bot::run);
+
         connect(bot, &Bot::finished, botThread, &QThread::quit);
         connect(bot, &Bot::finished, bot, &Bot::deleteLater);
         connect(botThread, &QThread::finished, botThread, &QThread::deleteLater);
+
+        // Запускаем поток. Бот теперь просто ждет команд в этом потоке.
         botThread->start();
 
         // Создаём виджет BotWidget для управления этим ботом

@@ -36,18 +36,12 @@ BotWidget::BotWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot)
                 qCCritical(logBotWidget) << "Character не инициализирован в BotWidget!";
             }
             layout->addWidget(m_tabWidget);
+
             // Связь MainWidget с Bot (старт/стоп)
-            connect(m_mainWidget, &MainWidget::startRequested,
-                    [this]()
-                    {
-                        if (m_bot) m_bot->run();
-                    });
-            connect(m_mainWidget, &MainWidget::stopRequested,
-                    [this]()
-                    {
-                        // Реализовать остановку бота через слот/флаг
-                        // Например: m_bot->stop();
-                    });
+            // ИЗМЕНЕНО: Прямое соединение сигнала со слотом.
+            // Qt автоматически обработает межпоточный вызов.
+            connect(m_mainWidget, &MainWidget::startRequested, m_bot, &Bot::run);
+            connect(m_mainWidget, &MainWidget::stopRequested, m_bot, &Bot::stop);
         }
         else
         {

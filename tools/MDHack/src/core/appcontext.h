@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <QString>  // <-- ДОБАВЛЕНО
 #include "core/player/player.h"
 
 // --- Подключаем компоненты из ядра MDBot2 ---
@@ -12,6 +13,9 @@
 #include "core/Bot/Character/CharacterHook.h"
 #include "core/Bot/Movement/Teleport/TeleportStepFlagHook.h"
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
+
+// Прямое объявление, чтобы не включать полный заголовок
+class GetComputerNameHook;
 
 /**
  * @class AppContext
@@ -38,9 +42,10 @@ class AppContext
      * @details Создает и инициализирует все необходимые менеджеры и хуки.
      * @param pid Идентификатор процесса WoW.
      * @param processName Имя процесса (например, L"run.exe").
+     * @param computerNameToSet Имя компьютера для подмены. Если пустое, хук не ставится.
      * @return true в случае успеха, иначе false.
      */
-    bool attachToProcess(uint32_t pid, const std::wstring& processName);
+    bool attachToProcess(uint32_t pid, const std::wstring& processName, const QString& computerNameToSet);
 
     /**
      * @brief Отключиться от процесса.
@@ -96,6 +101,9 @@ class AppContext
     std::unique_ptr<TeleportExecutor> m_teleportExecutor;
     /// @brief Указатель на менеджер игровых обьектов
     std::unique_ptr<GameObjectManager> m_gameObjectManager;
+
+    /// @brief Умный указатель на хук для подмены имени компьютера.
+    std::unique_ptr<GetComputerNameHook> m_computerNameHook;
 
     /// @brief PID подключенного процесса.
     uint32_t m_pid = 0;

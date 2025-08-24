@@ -79,6 +79,8 @@ void MainWindow::onSelectProcess()
     if (dlg.exec() == QDialog::Accepted)
     {
         ProcessInfo info = dlg.selectedProcess();
+        QString computerName = dlg.computerName();  // <-- ПОЛУЧАЕМ ИМЯ ИЗ ДИАЛОГА
+
         if (info.pid != 0)
         {
             if (appContext)
@@ -87,7 +89,9 @@ void MainWindow::onSelectProcess()
                 appContext = nullptr;
             }
             appContext = new AppContext();
-            if (appContext->attachToProcess(info.pid, info.name))
+
+            // Передаем имя компьютера в appContext
+            if (appContext->attachToProcess(info.pid, info.name, computerName))
             {
                 QMessageBox::information(this, "Успех", "Процесс успешно выбран!");
             }
