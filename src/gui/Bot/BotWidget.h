@@ -5,6 +5,7 @@
 #include <QTabWidget>
 #include "gui/Bot/CharacterWidget/CharacterWidget.h"
 #include "gui/Bot/MainWidget/MainWidget.h"
+#include "gui/Bot/DebugWidget/DebugWidget.h"
 
 class Bot;
 
@@ -34,7 +35,8 @@ class BotWidget : public QWidget
     Bot* m_bot;                                    ///< Указатель на объект Bot (не shared_ptr!)
     MainWidget* m_mainWidget = nullptr;            ///< Виджет для отображения данных основного интерфейса
     CharacterWidget* m_characterWidget = nullptr;  ///< Виджет для отображения данных персонажа
-    QTabWidget* m_tabWidget = nullptr;             ///< Виджет для отображения вкладок
+    DebugWidget* m_debugWidget = nullptr;
+    QTabWidget* m_tabWidget = nullptr;  ///< Виджет для отображения вкладок
 
     // Пример UI-элементов (можно расширять)
     // QLabel* m_pidLabel;

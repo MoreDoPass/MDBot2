@@ -26,132 +26,66 @@ GameObjectManager::GameObjectManager(MemoryManager* memoryManager, QObject* pare
 {
     if (!m_memoryManager)
     {
+        // Использование qFatal здесь оправдано, так как без MemoryManager
+        // дальнейшая работа невозможна и это критическая ошибка конфигурации.
         qFatal("GameObjectManager created with nullptr MemoryManager!");
     }
     qCInfo(logGOM) << "GameObjectManager created.";
-    initializeHooks();  // <--- Вызываем инициализацию хуков
 }
 
 GameObjectManager::~GameObjectManager()
 {
-    shutdownHooks();
     qCInfo(logGOM) << "GameObjectManager destroyed. Clearing" << m_gameObjects.size() << "cached objects.";
     m_gameObjects.clear();  // unique_ptr сам удалит все объекты
 }
 
-bool GameObjectManager::update()
+void GameObjectManager::updateFromSharedMemory(const SharedData& data)
 {
     try
     {
-        if (!m_memoryManager || !m_memoryManager->isProcessOpen())
-        {
-            qCWarning(logGOM) << "Update skipped: MemoryManager is not available.";
-            return false;
-        }
-
-        // 1. Получаем указатель на первый объект из статического адреса
-        uintptr_t firstObjectPtr = 0;
-        if (!m_memoryManager->readMemory(m_firstObjectPtrAddr, firstObjectPtr))
-        {
-            qCWarning(logGOM) << "Failed to read first object pointer from" << Qt::hex << m_firstObjectPtrAddr;
-            return false;
-        }
-
-        // Множество для хранения GUID'ов, которые мы увидели в этом цикле обновления.
-        // Нужно, чтобы потом удалить из нашего кэша те объекты, которых больше нет в игре.
+        // Множество для хранения GUID'ов, которые пришли из DLL в этом обновлении.
+        // Это нужно, чтобы потом эффективно удалить из нашего кэша те объекты,
+        // которых DLL больше не видит.
         std::set<uint64_t> visibleGuids;
-        uintptr_t currentObjectPtr = firstObjectPtr;
 
-        // Ограничитель, чтобы не уйти в бесконечный цикл, если что-то пойдет не так
-        for (int i = 0; i < 2048 && currentObjectPtr != 0; ++i)
+        // 1. Проходим по объектам из общей памяти, обновляем/добавляем их в наш кэш.
+        for (int i = 0; i < data.visibleObjectCount; ++i)
         {
-            // 2. Читаем GUID и тип текущего объекта
-            uint64_t guid = 0;
-            GameObjectType type = GameObjectType::None;
+            const GameObjectInfo& info = data.visibleObjects[i];
+            if (info.guid == 0) continue;  // Пропускаем невалидные объекты
 
-            if (!m_memoryManager->readMemory(currentObjectPtr + ObjectManagerOffsets::Guid, guid) ||
-                !m_memoryManager->readMemory(currentObjectPtr + ObjectManagerOffsets::Type, type))
-            {
-                qCWarning(logGOM) << "Failed to read GUID or Type for object at" << Qt::hex << currentObjectPtr;
-                // Переходим к следующему, может этот просто "битый"
-                m_memoryManager->readMemory(currentObjectPtr + ObjectManagerOffsets::NextObject, currentObjectPtr);
-                continue;
-            }
+            visibleGuids.insert(info.guid);
 
-            if (guid == 0)  // Пропускаем невалидные объекты
-            {
-                m_memoryManager->readMemory(currentObjectPtr + ObjectManagerOffsets::NextObject, currentObjectPtr);
-                continue;
-            }
-
-            visibleGuids.insert(guid);
-
-            // 3. Проверяем, есть ли объект в нашем кэше.
-            auto it = m_gameObjects.find(guid);
+            auto it = m_gameObjects.find(info.guid);
             if (it == m_gameObjects.end())
             {
-                // 3a. Объекта нет - создаем новый
-                std::unique_ptr<GameObject> newObject = nullptr;
-                size_t objectSize = 0;  // Размер структуры для чтения
+                // 1a. Объекта нет в кэше - создаем новый.
+                // Пока что мы получаем только базовую информацию, поэтому создаем GameObject.
+                // В будущем, если DLL будет передавать больше данных, здесь может быть фабрика объектов.
+                auto newObject = std::make_unique<GameObject>();
+                newObject->guid = info.guid;
+                newObject->type = static_cast<GameObjectType>(info.type);
+                newObject->position = info.position;
 
-                // Фабрика объектов по типу
-                switch (type)
-                {
-                    case GameObjectType::Player:
-                        newObject = std::make_unique<Player>();
-                        objectSize = sizeof(Player);  // <-- ИЗМЕНЕНИЕ: правильный размер
-                        break;
-                    case GameObjectType::Unit:
-                        newObject = std::make_unique<Unit>();
-                        objectSize = sizeof(Unit);  // <-- ИЗМЕНЕНИЕ: правильный размер
-                        break;
-                    case GameObjectType::GameObject:  // Трава, руда и т.д.
-                    case GameObjectType::DynamicObject:
-                        newObject = std::make_unique<GameObject>();
-                        objectSize = sizeof(GameObject);  // <-- ИЗМЕНЕНИЕ: правильный размер
-                        break;
-                    default:
-                        // Неизвестный или ненужный тип, пропускаем
-                        break;
-                }
-
-                if (newObject && objectSize > 0)
-                {
-                    // ИЗМЕНЕНИЕ: Используем reinterpret_cast и правильный размер objectSize
-                    if (m_memoryManager->readMemory(currentObjectPtr, reinterpret_cast<char*>(newObject.get()),
-                                                    objectSize))
-                    {
-                        qCDebug(logGOM) << "New object detected. GUID:" << guid
-                                        << "Type:" << static_cast<uint32_t>(type);
-                        m_gameObjects[guid] = std::move(newObject);
-                    }
-                }
+                qCDebug(logGOM) << "New object cached. GUID:" << Qt::hex << info.guid << Qt::dec
+                                << "Type:" << info.type;
+                m_gameObjects[info.guid] = std::move(newObject);
             }
             else
             {
-                // 3b. Объект уже есть в кэше - обновляем его данные
-                // ИЗМЕНЕНИЕ: Используем reinterpret_cast и правильный размер, соответствующий типу объекта
-                // Для простоты пока читаем размер базового класса, но в идеале нужно хранить
-                // размер или использовать virtual-функцию для его получения.
-                // Пока оставим так, чтобы не усложнять. Главное было исправить создание.
-                m_memoryManager->readMemory(currentObjectPtr, reinterpret_cast<char*>(it->second.get()),
-                                            sizeof(GameObject));  // Здесь пока читаем базовый размер для обновления
-            }
-
-            // 4. Переходим к следующему объекту в связном списке игры
-            if (!m_memoryManager->readMemory(currentObjectPtr + ObjectManagerOffsets::NextObject, currentObjectPtr))
-            {
-                qCWarning(logGOM) << "Failed to read next object pointer, ending update loop.";
-                break;
+                // 1b. Объект уже есть в кэше - просто обновляем его данные.
+                it->second->type = static_cast<GameObjectType>(info.type);
+                it->second->position = info.position;
             }
         }
 
-        // 5. Удаляем из нашего кэша объекты, которые больше не видны
+        // 2. Удаляем из нашего кэша объекты, которые больше не видны.
+        // Проходим по нашему кэшу и проверяем, есть ли GUID объекта в сете видимых.
         for (auto it = m_gameObjects.begin(); it != m_gameObjects.end();)
         {
             if (visibleGuids.find(it->first) == visibleGuids.end())
             {
-                qCDebug(logGOM) << "Object removed from cache (out of sight). GUID:" << it->first;
+                qCDebug(logGOM) << "Object removed from cache (out of sight). GUID:" << Qt::hex << it->first;
                 it = m_gameObjects.erase(it);  // erase возвращает итератор на следующий элемент
             }
             else
@@ -159,12 +93,10 @@ bool GameObjectManager::update()
                 ++it;
             }
         }
-        return true;
     }
     catch (const std::exception& e)
     {
-        qCCritical(logGOM) << "Exception in GameObjectManager::update:" << e.what();
-        return false;
+        qCCritical(logGOM) << "Exception in GameObjectManager::updateFromSharedMemory:" << e.what();
     }
 }
 
@@ -193,80 +125,6 @@ std::vector<GameObject*> GameObjectManager::getObjectsByType(GameObjectType type
     return result;
 }
 
-void GameObjectManager::initializeHooks()
-{
-    try
-    {
-        qCInfo(logGOM) << "Initializing hooks for GameObjectManager...";
-        // 1. Выделяем память в процессе игры, куда хук будет складывать указатель.
-        m_targetPtrSaveAddr = m_memoryManager->allocMemory(sizeof(uintptr_t));
-        if (!m_targetPtrSaveAddr)
-        {
-            qCCritical(logGOM) << "Failed to allocate memory for target pointer save address!";
-            return;
-        }
-        qCInfo(logGOM) << "Allocated memory for target pointer at:" << Qt::hex
-                       << reinterpret_cast<uintptr_t>(m_targetPtrSaveAddr);
-
-        // 2. Создаем и устанавливаем TargetHook.
-        //    ВАЖНО: Адрес 0x0072A6C5 - это пример! Тебе нужно будет найти актуальный.
-        constexpr uintptr_t targetFuncAddress = 0x0072A6C5;
-        m_targetHook = std::make_unique<TargetHook>(targetFuncAddress, m_memoryManager,
-                                                    reinterpret_cast<uintptr_t>(m_targetPtrSaveAddr));
-
-        if (!m_targetHook->install())
-        {
-            qCCritical(logGOM) << "Failed to install TargetHook at" << Qt::hex << targetFuncAddress;
-            // Если установка провалилась, очищаем, чтобы не было мусора
-            m_memoryManager->freeMemory(m_targetPtrSaveAddr);
-            m_targetPtrSaveAddr = nullptr;
-            m_targetHook.reset();
-        }
-        else
-        {
-            qCInfo(logGOM) << "TargetHook installed successfully at" << Qt::hex << targetFuncAddress;
-        }
-    }
-    catch (const std::exception& e)
-    {
-        qCCritical(logGOM) << "Exception during hooks initialization:" << e.what();
-    }
-}
-
-/**
- * @brief Снимает и очищает все хуки, используемые GOM.
- */
-void GameObjectManager::shutdownHooks()
-{
-    try
-    {
-        qCInfo(logGOM) << "Shutting down hooks for GameObjectManager...";
-        // Снимаем и удаляем хук
-        if (m_targetHook)
-        {
-            if (m_targetHook->isInstalled())
-            {
-                m_targetHook->uninstall();
-                qCInfo(logGOM) << "TargetHook uninstalled.";
-            }
-            m_targetHook.reset();  // unique_ptr сам вызовет деструктор
-        }
-
-        // Освобождаем выделенную память
-        if (m_targetPtrSaveAddr)
-        {
-            m_memoryManager->freeMemory(m_targetPtrSaveAddr);
-            qCInfo(logGOM) << "Freed memory for target pointer at:" << Qt::hex
-                           << reinterpret_cast<uintptr_t>(m_targetPtrSaveAddr);
-            m_targetPtrSaveAddr = nullptr;
-        }
-    }
-    catch (const std::exception& e)
-    {
-        qCCritical(logGOM) << "Exception during hooks shutdown:" << e.what();
-    }
-}
-
 /**
  * @brief Получить игровой объект, который сейчас в цели у игрока.
  * @details Читает указатель на цель, сохраненный хуком TargetHook,
@@ -275,38 +133,8 @@ void GameObjectManager::shutdownHooks()
  */
 GameObject* GameObjectManager::getTargetObject() const
 {
-    try
-    {
-        // 1. Проверяем, что вся инфраструктура хука на месте
-        if (!m_targetPtrSaveAddr || !m_memoryManager)
-        {
-            qCWarning(logGOM) << "Cannot get target object: hook infrastructure is not initialized.";
-            return nullptr;
-        }
-
-        // 2. Читаем из нашей ячейки "сырой" адрес объекта цели.
-        uintptr_t targetBaseAddr = 0;
-        if (!m_memoryManager->readMemory(reinterpret_cast<uintptr_t>(m_targetPtrSaveAddr), targetBaseAddr))
-        {
-            // Эта ошибка может возникнуть, если MemoryManager не может прочитать память
-            qCWarning(logGOM) << "Failed to read target base address from saved pointer location.";
-            return nullptr;
-        }
-
-        // 3. Если адрес нулевой, значит в игре сейчас нет цели. Это нормальная ситуация.
-        if (targetBaseAddr == 0)
-        {
-            return nullptr;
-        }
-
-        // 4. ВАЖНО: Преобразуем прочитанный адрес (который просто число)
-        //    в указатель на нашу структуру GameObject и возвращаем его.
-        //    Именно это ты и просил сделать.
-        return reinterpret_cast<GameObject*>(targetBaseAddr);
-    }
-    catch (const std::exception& e)
-    {
-        qCCritical(logGOM) << "Exception in getTargetObject:" << e.what();
-        return nullptr;
-    }
+    // TODO: Логику получения цели также нужно будет перенести на Shared Memory.
+    // DLL должна будет определять цель и класть ее GUID в специальное поле в SharedData.
+    // Пока что этот метод будет возвращать nullptr.
+    return nullptr;
 }

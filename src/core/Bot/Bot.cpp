@@ -33,8 +33,6 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
         {
             qCInfo(logBot) << "Bot object and MemoryManager created for PID:" << m_processId;
 
-            // --- 1. СОЗДАЕМ ОБЩУЮ ПАМЯТЬ ---
-            // Генерируем уникальное имя для блока памяти, чтобы избежать конфликтов
             m_sharedMemoryName = L"MDBot2_SharedBlock_" + std::to_wstring(m_processId);
             qCInfo(logBot) << "Creating shared memory block:" << QString::fromStdWString(m_sharedMemoryName);
 
@@ -45,9 +43,6 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
             }
             qCInfo(logBot) << "Shared memory created successfully.";
 
-            // --- 2. ИНЪЕКЦИЯ DLL ---
-            // Теперь инъекция должна идти ПОСЛЕ создания общей памяти,
-            // чтобы DLL при загрузке уже могла к ней подключиться.
             qCInfo(logBot) << "Attempting to inject MDBot_Client.dll...";
             const std::string dllName = "MDBot_Client.dll";
             uintptr_t dllBaseAddress = InjectionManager::Inject(static_cast<DWORD>(m_processId), dllName);
@@ -63,7 +58,9 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
                     "Failed to inject DLL. Ensure the file exists and MDBot2 is run as an administrator.");
             }
 
-            // ... (остальной код конструктора без изменений) ...
+            m_character = new Character(&m_memoryManager, this);
+            m_gameObjectManager = new GameObjectManager(&m_memoryManager, this);
+            m_movementManager = new MovementManager(&m_memoryManager, m_character, this);
         }
     }
     catch (const std::exception& ex)
@@ -145,42 +142,30 @@ void Bot::run()
                     qCInfo(logBot) << "Старт основного цикла бота для PID:" << m_processId;
                     while (m_running)
                     {
-                        // --- 1. ЧИТАЕМ ДАННЫЕ ИЗ ОБЩЕЙ ПАМЯТИ ---
                         SharedData dataFromDll;
                         if (m_sharedMemory.read(dataFromDll))
                         {
-                            // --- ИЗМЕНЕНИЕ ЗДЕСЬ ---
-                            // Выводим в лог общую информацию: HP игрока и количество видимых объектов.
-                            qCDebug(logBot) << "Data from DLL: HP=" << dataFromDll.player.health
-                                            << "Visible Objects:" << dataFromDll.visibleObjectCount;
-
-                            // 2. Проходим в цикле по всем видимым объектам и выводим их данные.
-                            for (int i = 0; i < dataFromDll.visibleObjectCount; ++i)
+                            // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
+                            // 1. Передаем данные в менеджеры для обновления их состояния.
+                            //    Теперь Bot не занимается логикой обновления, а только делегирует ее.
+                            if (m_gameObjectManager)
                             {
-                                // Получаем ссылку на информацию о текущем объекте для удобства
-                                const GameObjectInfo& obj = dataFromDll.visibleObjects[i];
-
-                                // Выводим детальную информацию по каждому объекту.
-                                // GUID выводим в шестнадцатеричном формате (hex), так как это указатель.
-                                qCDebug(logBot)
-                                    << "  -> Obj" << i << ":"
-                                    << "GUID=" << Qt::hex << obj.guid << Qt::dec << "Type=" << obj.type << "Pos=("
-                                    << obj.position.x << "," << obj.position.y << "," << obj.position.z << ")";
+                                m_gameObjectManager->updateFromSharedMemory(dataFromDll);
                             }
+                            if (m_character)
+                            {
+                                // TODO: Создать метод m_character->updateFromSharedMemory(dataFromDll.player);
+                                // Пока что оставим старый метод для персонажа.
+                                m_character->updateFromMemory();
+                            }
+
+                            // 2. Отправляем сигнал для GUI (например, для DebugWidget)
+                            emit debugDataReady(dataFromDll);
                         }
 
-                        // Старый код обновления пока оставляем, как ты и просил.
-                        // Позже мы его заменим на вызов GameObjectManager::updateFromSharedMemory().
-                        if (m_character)
-                        {
-                            m_character->updateFromMemory();
-                        }
-                        if (m_gameObjectManager)
-                        {
-                            m_gameObjectManager->update();
-                        }
-
-                        QThread::msleep(500);  // Пауза между итерациями
+                        // Пауза между итерациями. 200мс соответствует 5 обновлениям в секунду,
+                        // как и в нашей DLL.
+                        QThread::msleep(200);
                     }
                     qCInfo(logBot) << "Бот завершил работу для PID:" << m_processId;
                 }
@@ -204,5 +189,19 @@ void Bot::stop()
         m_thread->quit();
         m_thread->wait();
         m_thread = nullptr;
+    }
+}
+
+void Bot::provideDebugData()
+{
+    SharedData dataFromDll;
+    if (m_sharedMemory.read(dataFromDll))
+    {
+        // Если данные успешно прочитаны, отправляем их в GUI
+        emit debugDataReady(dataFromDll);
+    }
+    else
+    {
+        qCWarning(logBot) << "Failed to read shared memory on demand for debug widget.";
     }
 }

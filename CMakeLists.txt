@@ -38,6 +38,7 @@ add_executable(MDBot2
     src/core/Bot/Bot.cpp
     src/gui/Bot/BotWidget.cpp
     src/gui/Bot/CharacterWidget/CharacterWidget.cpp
+    src/gui/Bot/DebugWidget/DebugWidget.cpp
     src/gui/Bot/MainWidget/MainWidget.cpp
     src/core/Bot/Movement/MovementManager.cpp
     src/core/Bot/Movement/CtM/CtM.cpp

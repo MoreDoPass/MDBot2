@@ -11,6 +11,7 @@
 #include "core/Bot/Movement/MovementManager.h"
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
 #include "core/SharedMemoryManager/SharedMemoryManager.h"
+#include "Shared/Data/SharedData.h"
 
 // Прямое объявление, чтобы не включать полный заголовок
 class GetComputerNameHook;
@@ -61,11 +62,24 @@ class Bot : public QObject
     void run();
     void stop();
 
+    /**
+     * @brief Слот для обработки запроса на отладочные данные от GUI.
+     * @details Читает последние данные из Shared Memory и отправляет их
+     *          обратно в GUI через сигнал debugDataReady.
+     */
+    void provideDebugData();
+
    signals:
     /**
      * @brief Сигнал завершения работы бота (например, по ошибке или по команде).
      */
     void finished();
+
+    /**
+     * @brief Сигнал, отправляющий свежие данные в GUI для отображения.
+     * @param data Структура с данными об игроке и видимых объектах.
+     */
+    void debugDataReady(const SharedData& data);
 
    private:
     qint64 m_processId;             ///< PID процесса WoW

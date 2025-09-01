@@ -1,6 +1,7 @@
 #include "BotWidget.h"
 #include "core/Bot/Bot.h"
 #include "gui/Bot/CharacterWidget/CharacterWidget.h"
+#include "gui/Bot/DebugWidget/DebugWidget.h"
 #include "gui/Bot/MainWidget/MainWidget.h"
 #include <QVBoxLayout>
 #include <QLabel>
@@ -20,9 +21,11 @@ BotWidget::BotWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot)
             auto* pidLabel = new QLabel(tr("PID процесса: %1").arg(m_bot->processId()), this);
             layout->addWidget(pidLabel);
             m_tabWidget = new QTabWidget(this);
+
             // Вкладка "Главное"
             m_mainWidget = new MainWidget(m_bot, this);
             m_tabWidget->addTab(m_mainWidget, tr("Главное"));
+
             // Вкладка "Character"
             if (m_bot->character())
             {
@@ -35,13 +38,24 @@ BotWidget::BotWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot)
                 m_tabWidget->addTab(errorLabel, tr("Character"));
                 qCCritical(logBotWidget) << "Character не инициализирован в BotWidget!";
             }
+
+            // Вкладка "Отладка"
+            m_debugWidget = new DebugWidget(m_bot, this);
+            m_tabWidget->addTab(m_debugWidget, tr("Отладка"));
+
             layout->addWidget(m_tabWidget);
 
-            // Связь MainWidget с Bot (старт/стоп)
-            // ИЗМЕНЕНО: Прямое соединение сигнала со слотом.
-            // Qt автоматически обработает межпоточный вызов.
+            // --- ГЛАВНЫЕ СОЕДИНЕНИЯ ---
+            // 1. Соединяем кнопки Старт/Стоп
             connect(m_mainWidget, &MainWidget::startRequested, m_bot, &Bot::run);
             connect(m_mainWidget, &MainWidget::stopRequested, m_bot, &Bot::stop);
+
+            // 2. Соединяем наш новый механизм "запрос-ответ"
+            //    ЗАПРОС: DebugWidget -> Bot
+            connect(m_debugWidget, &DebugWidget::refreshRequested, m_bot, &Bot::provideDebugData);
+            //    ОТВЕТ: Bot -> DebugWidget
+            connect(m_bot, &Bot::debugDataReady, m_debugWidget, &DebugWidget::onDebugDataReady);
+            // --- КОНЕЦ ГЛАВНЫХ СОЕДИНЕНИЙ ---
         }
         else
         {
