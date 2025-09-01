@@ -10,6 +10,7 @@
 #include "core/Bot/Character/Character.h"
 #include "core/Bot/Movement/MovementManager.h"
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
+#include "core/SharedMemoryManager/SharedMemoryManager.h"
 
 // Прямое объявление, чтобы не включать полный заголовок
 class GetComputerNameHook;
@@ -79,5 +80,8 @@ class Bot : public QObject
 
     /// @brief Умный указатель на хук для подмены имени компьютера.
     std::unique_ptr<GetComputerNameHook> m_computerNameHook;
+
+    SharedMemoryManager m_sharedMemory;  ///< Менеджер для работы с общей памятью
+    std::wstring m_sharedMemoryName;     ///< Уникальное имя блока общей памяти
 };
 Q_DECLARE_LOGGING_CATEGORY(logBot)

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/Utils/Vector.h"
+#include "shared/Utils/Vector.h"
 #include <cstdint>
 
 /**

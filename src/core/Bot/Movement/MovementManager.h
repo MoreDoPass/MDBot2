@@ -7,7 +7,7 @@
 #include "core/Bot/Movement/CtM/CtM.h"
 #include "core/Bot/Movement/CtM/CtMEnablerHook.h"
 #include "core/Navigation/PathfindingService.h"  // Интеграция с сервисом поиска пути
-#include "core/Utils/Vector.h"                   // Для использования Vector3
+#include "shared/Utils/Vector.h"                 // Для использования Vector3
 
 class Character;
 

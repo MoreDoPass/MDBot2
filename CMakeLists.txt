@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 project(MDBot2 LANGUAGES CXX)
-
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Настройки для vcpkg
@@ -21,8 +21,10 @@ find_package(recastnavigation CONFIG REQUIRED)
 # Эта команда заставит CMake зайти в папку src/core и выполнить CMakeLists.txt оттуда.
 # После этого все цели (Core_MemoryManager, Core_Teleport и т.д.) будут доступны здесь.
 add_subdirectory(src/core)
-
+add_subdirectory(src/client)
+add_subdirectory(src/shared)
 add_subdirectory(tools/MDHack)
+
 
 # --- Создаем основной исполняемый файл ---
 # Здесь мы перечисляем ТОЛЬКО те cpp-файлы, которые не входят ни в одну из core-библиотек.
@@ -53,11 +55,15 @@ target_link_libraries(MDBot2 PRIVATE
     # Наши внутренние core-библиотеки
     Core_MemoryManager
     Core_ProcessManager
+    Core_SharedMemoryManager
     Core_HookManager
     Core_Navigation
     Core_Teleport # <-- ДОБАВЛЕНА НОВАЯ БИБЛИОТЕКА
     Core_Character
     Core_GameObject
+    Core_InjectionManager
+    Core_Shared
+    Core_Utils
 )
 
 # Указываем, где искать заголовочные файлы

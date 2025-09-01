@@ -5,7 +5,7 @@
 #include <QString>
 #include "core/MemoryManager/MemoryManager.h"
 #include "CharacterHook.h"
-#include "core/Utils/Vector.h"
+#include "shared/Utils/Vector.h"
 
 /**
  * @brief Категория логирования для Character.

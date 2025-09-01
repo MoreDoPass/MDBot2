@@ -26,29 +26,42 @@ target_include_directories(Core_ProcessManager PUBLIC
 )
 target_link_libraries(Core_ProcessManager PUBLIC Qt6::Core)
 
-
-# --- Библиотека Utils (содержит только заголовки) ---
-add_library(Core_Utils INTERFACE)
-target_include_directories(Core_Utils INTERFACE
-    # Указываем путь относительно текущего CMakeLists.txt
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-
 # --- Библиотека Navigation ---
 add_library(Core_Navigation STATIC
     Navigation/NavMeshManager.cpp
     Navigation/PathfindingService.cpp
 )
-target_include_directories(Core_Navigation PUBLIC
-    ${CORE_INCLUDE_DIR}
-)
+target_include_directories(Core_Navigation PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(Core_Navigation PUBLIC
     Qt6::Core
     RecastNavigation::Recast
     RecastNavigation::Detour
     RecastNavigation::DetourTileCache
     Core_Utils # Связываем с Core_Utils, чтобы получить пути к заголовкам
+)
+
+# --- Библиотека InjectionManager ---
+add_library(Core_InjectionManager STATIC
+    InjectionManager/InjectionManager.cpp
+)
+target_include_directories(Core_InjectionManager PUBLIC
+    # Указываем, что его заголовки лежат в общей директории core
+    ${CORE_INCLUDE_DIR}
+)
+# InjectionManager не зависит от других наших библиотек, но может использовать Qt для логирования в будущем
+target_link_libraries(Core_InjectionManager PUBLIC Qt6::Core)
+
+# --- Библиотека SharedMemoryManager ---
+add_library(Core_SharedMemoryManager STATIC
+    SharedMemoryManager/SharedMemoryManager.cpp
+)
+target_include_directories(Core_SharedMemoryManager PUBLIC
+    ${CORE_INCLUDE_DIR}
+)
+# Эта библиотека будет использовать наш "контракт" из Core_Shared
+target_link_libraries(Core_SharedMemoryManager PUBLIC
+    Core_Shared
+    Qt6::Core
 )
 
 # --- Библиотека HookManager ---
