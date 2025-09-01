@@ -1,63 +1,52 @@
 #pragma once
-
-// Используем стандартные типы с фиксированным размером для надежности
 #include <cstdint>
 #include "shared/Utils/Vector.h"
+#include "shared/Structures/Enums/GameObjectType.h"  // Включаем наш enum
 
-// Максимальное количество объектов, которое мы будем передавать за один раз.
-// Это значение должно быть согласовано между DLL и основным приложением.
 constexpr int32_t MAX_VISIBLE_OBJECTS = 128;
 
 /**
  * @struct GameObjectInfo
- * @brief Базовая информация об игровом объекте, передаваемая в Shared Memory.
+ * @brief "Плоская" структура для передачи полной информации об объекте через Shared Memory.
+ * @details Содержит все часто используемые поля, прочитанные DLL из памяти игры.
  */
 struct GameObjectInfo
 {
-    /// @brief Уникальный 64-битный идентификатор объекта в игре.
+    // --- Базовые данные, есть у всех ---
     uint64_t guid = 0;
-    /// @brief Тип объекта (игрок, NPC, руда, трава и т.д.).
-    uint32_t type = 0;
-    /// @brief Позиция объекта в игровом мире.
+    uintptr_t baseAddress = 0;  // Указатель на объект в памяти игры
+    GameObjectType type = GameObjectType::None;
     Vector3 position;
+
+    // --- Данные для Unit/Player ---
+    uint32_t health = 0;
+    uint32_t maxHealth = 0;
+    uint32_t mana = 0;
+    uint32_t maxMana = 0;
+    uint8_t level = 0;
+
+    // --- Данные для GameObject (руда/трава) ---
+    // Пока оставим пустым, добавим позже при необходимости (например, имя)
 };
 
 /**
  * @struct PlayerData
- * @brief Структура, описывающая данные о персонаже,
- *        которые DLL будет передавать в основное приложение.
+ * @brief Данные о персонаже игрока.
  */
 struct PlayerData
 {
-    /// @brief Текущее здоровье игрока.
     uint32_t health = 0;
-    /// @brief Максимальное здоровье игрока.
     uint32_t maxHealth = 0;
-    /// @brief Текущая позиция игрока в мире.
     Vector3 position;
 };
 
 /**
  * @struct SharedData
  * @brief Главная структура для общей памяти (Shared Memory).
- * @details Это "контракт" данных между DLL и EXE.
- *          Важно, чтобы размер этой структуры был одинаковым в обоих модулях.
  */
 struct SharedData
 {
-    // --- Секция данных (DLL -> EXE) ---
-    // DLL будет заполнять эту структуру актуальными данными из игры.
-
-    /// @brief Данные о персонаже игрока.
     PlayerData player;
-
-    /// @brief Количество актуальных объектов в массиве visibleObjects.
     int32_t visibleObjectCount = 0;
-
-    /// @brief Массив с информацией о видимых объектах.
     GameObjectInfo visibleObjects[MAX_VISIBLE_OBJECTS];
-
-    // --- Секция управления (EXE -> DLL) ---
-    // В будущем здесь могут быть флаги для управления DLL из EXE.
-    // Например: bool shutdown_requested = false;
 };

@@ -59,7 +59,11 @@ void DebugWidget::onDebugDataReady(const SharedData& data)
 
         // Создаем элементы для каждой ячейки в строке
         auto* guidItem = new QStandardItem(QString("0x%1").arg(obj.guid, 16, 16, QChar('0')));
-        auto* typeItem = new QStandardItem(QString::number(obj.type));
+
+        // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        // Явно приводим enum class к целочисленному типу, который QString::number понимает.
+        auto* typeItem = new QStandardItem(QString::number(static_cast<uint32_t>(obj.type)));
+
         auto* posItem = new QStandardItem(QStringLiteral("(%1, %2, %3)")
                                               .arg(obj.position.x, 0, 'f', 2)
                                               .arg(obj.position.y, 0, 'f', 2)

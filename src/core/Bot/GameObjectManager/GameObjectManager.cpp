@@ -1,6 +1,4 @@
 #include "GameObjectManager.h"
-#include "core/Bot/GameObjectManager/Structures/Unit.h"    // Подключаем полные определения
-#include "core/Bot/GameObjectManager/Structures/Player.h"  // для создания экземпляров
 
 #include <set>  // Для отслеживания видимых GUID
 
@@ -43,50 +41,67 @@ void GameObjectManager::updateFromSharedMemory(const SharedData& data)
 {
     try
     {
-        // Множество для хранения GUID'ов, которые пришли из DLL в этом обновлении.
-        // Это нужно, чтобы потом эффективно удалить из нашего кэша те объекты,
-        // которых DLL больше не видит.
         std::set<uint64_t> visibleGuids;
 
-        // 1. Проходим по объектам из общей памяти, обновляем/добавляем их в наш кэш.
         for (int i = 0; i < data.visibleObjectCount; ++i)
         {
             const GameObjectInfo& info = data.visibleObjects[i];
-            if (info.guid == 0) continue;  // Пропускаем невалидные объекты
+            if (info.guid == 0) continue;
 
             visibleGuids.insert(info.guid);
 
             auto it = m_gameObjects.find(info.guid);
             if (it == m_gameObjects.end())
             {
-                // 1a. Объекта нет в кэше - создаем новый.
-                // Пока что мы получаем только базовую информацию, поэтому создаем GameObject.
-                // В будущем, если DLL будет передавать больше данных, здесь может быть фабрика объектов.
-                auto newObject = std::make_unique<GameObject>();
-                newObject->guid = info.guid;
-                newObject->type = static_cast<GameObjectType>(info.type);
-                newObject->position = info.position;
+                // --- ФАБРИКА ОБЪЕКТОВ ---
+                // Объекта нет в кэше - создаем новый в зависимости от типа.
+                std::unique_ptr<WorldObject> newObject = nullptr;
+                GameObjectType type = static_cast<GameObjectType>(info.type);
 
-                qCDebug(logGOM) << "New object cached. GUID:" << Qt::hex << info.guid << Qt::dec
-                                << "Type:" << info.type;
-                m_gameObjects[info.guid] = std::move(newObject);
+                switch (type)
+                {
+                    case GameObjectType::Player:
+                        newObject = std::make_unique<Player>();
+                        break;
+                    case GameObjectType::Unit:
+                        newObject = std::make_unique<Unit>();
+                        break;
+                    case GameObjectType::GameObject:
+                        newObject = std::make_unique<GameObject>();
+                        break;
+                    default:
+                        // Для неизвестных или неинтересных нам типов создаем базовый WorldObject
+                        newObject = std::make_unique<WorldObject>();
+                        break;
+                }
+
+                // Копируем базовые данные из SharedData в нашу полную структуру.
+                // В будущем здесь будет полное копирование всех полей.
+                if (newObject)
+                {
+                    newObject->guid = info.guid;
+                    newObject->objectType = type;
+                    // TODO: Копировать остальные поля (HP, позицию и т.д.)
+
+                    qCDebug(logGOM) << "New object cached. GUID:" << Qt::hex << info.guid << Qt::dec
+                                    << "Type:" << static_cast<uint32_t>(info.type);
+                    m_gameObjects[info.guid] = std::move(newObject);
+                }
             }
             else
             {
-                // 1b. Объект уже есть в кэше - просто обновляем его данные.
-                it->second->type = static_cast<GameObjectType>(info.type);
-                it->second->position = info.position;
+                // Объект уже есть в кэше - просто обновляем его данные.
+                // TODO: Обновлять поля (HP, позицию и т.д.)
             }
         }
 
-        // 2. Удаляем из нашего кэша объекты, которые больше не видны.
-        // Проходим по нашему кэшу и проверяем, есть ли GUID объекта в сете видимых.
+        // Удаляем из нашего кэша объекты, которые больше не видны.
         for (auto it = m_gameObjects.begin(); it != m_gameObjects.end();)
         {
             if (visibleGuids.find(it->first) == visibleGuids.end())
             {
                 qCDebug(logGOM) << "Object removed from cache (out of sight). GUID:" << Qt::hex << it->first;
-                it = m_gameObjects.erase(it);  // erase возвращает итератор на следующий элемент
+                it = m_gameObjects.erase(it);
             }
             else
             {
@@ -100,7 +115,7 @@ void GameObjectManager::updateFromSharedMemory(const SharedData& data)
     }
 }
 
-GameObject* GameObjectManager::getObjectByGuid(uint64_t guid) const
+WorldObject* GameObjectManager::getObjectByGuid(uint64_t guid) const
 {
     auto it = m_gameObjects.find(guid);
     if (it != m_gameObjects.end())
@@ -110,14 +125,13 @@ GameObject* GameObjectManager::getObjectByGuid(uint64_t guid) const
     return nullptr;
 }
 
-std::vector<GameObject*> GameObjectManager::getObjectsByType(GameObjectType type) const
+std::vector<WorldObject*> GameObjectManager::getObjectsByType(GameObjectType type) const
 {
-    std::vector<GameObject*> result;
-    result.reserve(m_gameObjects.size());  // Небольшая оптимизация
+    std::vector<WorldObject*> result;
+    result.reserve(m_gameObjects.size());
     for (const auto& pair : m_gameObjects)
     {
-        // Здесь нужно будет уточнить проверку, т.к. Player тоже является Unit
-        if (pair.second && pair.second->type == type)
+        if (pair.second && pair.second->objectType == type)
         {
             result.push_back(pair.second.get());
         }
@@ -125,16 +139,7 @@ std::vector<GameObject*> GameObjectManager::getObjectsByType(GameObjectType type
     return result;
 }
 
-/**
- * @brief Получить игровой объект, который сейчас в цели у игрока.
- * @details Читает указатель на цель, сохраненный хуком TargetHook,
- *          затем читает GUID цели и ищет объект в своем кэше.
- * @return Указатель на объект цели или nullptr, если цели нет или она не найдена.
- */
-GameObject* GameObjectManager::getTargetObject() const
+WorldObject* GameObjectManager::getTargetObject() const
 {
-    // TODO: Логику получения цели также нужно будет перенести на Shared Memory.
-    // DLL должна будет определять цель и класть ее GUID в специальное поле в SharedData.
-    // Пока что этот метод будет возвращать nullptr.
     return nullptr;
 }
