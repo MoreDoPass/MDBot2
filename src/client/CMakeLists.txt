@@ -6,6 +6,7 @@ add_library(MDBot_Client SHARED
     Core/Memory/SharedMemoryConnector.cpp
     Hooks/GameLoopHook.cpp
     Hooks/VisibleObjectsHook.cpp
+    Hooks/CtMEnablerHook.cpp
 )
 
 find_package(capstone REQUIRED)

@@ -1,6 +1,5 @@
 #include "Bot.h"
 #include "core/Bot/Character/Character.h"
-#include "core/Navigation/PathfindingService.h"  // Для инициализации сервиса
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
 #include "core/Bot/Hooks/GetComputerNameHook.h"
 #include <QThread>
@@ -83,8 +82,6 @@ Bot::~Bot()
             m_computerNameHook.reset();
             qCInfo(logBot) << "GetComputerNameHook uninstalled.";
         }
-
-        PathfindingService::getInstance().stop();
 
         delete m_gameObjectManager;
         delete m_character;

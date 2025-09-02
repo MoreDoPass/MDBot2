@@ -42,8 +42,6 @@ add_executable(MDBot2
     src/gui/Bot/MainWidget/MainWidget.cpp
     src/core/Bot/Movement/MovementManager.cpp
     src/core/Bot/Movement/CtM/CtM.cpp
-    src/core/Bot/Movement/CtM/CtMEnablerHook.cpp
-    src/core/Bot/Movement/Pathfinder/Pathfinder.cpp
 )
 
 # --- Линкуем MDBot2 со всеми нужными библиотеками ---
@@ -58,7 +56,6 @@ target_link_libraries(MDBot2 PRIVATE
     Core_ProcessManager
     Core_SharedMemoryManager
     Core_HookManager
-    Core_Navigation
     Core_Teleport # <-- ДОБАВЛЕНА НОВАЯ БИБЛИОТЕКА
     Core_Character
     Core_GameObject
@@ -116,7 +113,6 @@ add_test(NAME InlineHookTest COMMAND test_InlineHook)
 
 add_executable(test_CtM
     tests/test_CtM.cpp
-    src/core/Bot/Movement/CtM/CtMEnablerHook.cpp # Предполагается, что CtMEnablerHook не часть Core_HookManager
     src/core/Bot/Movement/CtM/CtM.cpp
 )
 target_include_directories(test_CtM PRIVATE

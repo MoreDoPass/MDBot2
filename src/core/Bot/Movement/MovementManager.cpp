@@ -1,8 +1,5 @@
 #include "MovementManager.h"
-#include "core/Bot/Movement/CtM/CtMEnablerHook.h"
 #include <QLoggingCategory>
-#include "core/Navigation/NavMeshManager.h"
-#include "core/Navigation/PathfindingService.h"
 #include "core/Bot/Character/Character.h"  // Предполагается, что у нас есть доступ к Character для получения текущей позиции
 
 Q_LOGGING_CATEGORY(logMovementManager, "mdbot.movementmanager")
@@ -13,17 +10,6 @@ MovementManager::MovementManager(MemoryManager* memory, Character* character, QO
     qCInfo(logMovementManager) << "MovementManager создан";
 
     connect(&m_pathExecutorTimer, &QTimer::timeout, this, &MovementManager::updatePathExecution);
-
-    // Инициализация CtMEnablerHook
-    m_ctmEnablerHook = std::make_unique<CtMEnablerHook>(memory);
-    if (!m_ctmEnablerHook->install())
-    {
-        qCCritical(logMovementManager) << "CtMEnablerHook не удалось установить!";
-    }
-    else
-    {
-        qCInfo(logMovementManager) << "CtMEnablerHook успешно установлен";
-    }
 }
 
 MovementManager::~MovementManager()
@@ -40,21 +26,6 @@ bool MovementManager::moveTo(float x, float y, float z, const MovementSettings& 
 
     qCInfo(logMovementManager) << "Запрос на поиск пути от" << currentPos.x << currentPos.y << currentPos.z << "до" << x
                                << y << z;
-
-    PathfindingRequest request;
-    request.mapId = mapId;
-    request.startPos = currentPos;
-    request.endPos = {x, y, z};
-
-    // Используем QMetaObject::invokeMethod для потокобезопасного вызова onPathFound
-    // из рабочего потока PathfindingService в потоке MovementManager.
-    request.callback = [this](std::vector<Vector3> path)
-    {
-        QMetaObject::invokeMethod(
-            this, [this, path = std::move(path)]() { onPathFound(std::move(path)); }, Qt::QueuedConnection);
-    };
-
-    PathfindingService::getInstance().requestPath(request);
 
     return true;  // Запрос успешно отправлен
 }
@@ -100,9 +71,6 @@ void MovementManager::updatePathExecution()
 
     Vector3 currentPos = m_character->GetPosition();
     quint32 mapId = m_character->GetMapId();
-
-    // Обновляем NavMeshManager, чтобы он мог подгружать тайлы вокруг игрока
-    NavMeshManager::getInstance().update(mapId, currentPos);
 
     const auto& targetPoint = m_currentPath[m_currentPathIndex];
 

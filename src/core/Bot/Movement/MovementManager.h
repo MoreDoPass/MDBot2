@@ -5,9 +5,7 @@
 #include <memory>
 #include <vector>
 #include "core/Bot/Movement/CtM/CtM.h"
-#include "core/Bot/Movement/CtM/CtMEnablerHook.h"
-#include "core/Navigation/PathfindingService.h"  // Интеграция с сервисом поиска пути
-#include "shared/Utils/Vector.h"                 // Для использования Vector3
+#include "shared/Utils/Vector.h"  // Для использования Vector3
 
 class Character;
 
@@ -83,7 +81,6 @@ class MovementManager : public QObject
     void onPathFound(std::vector<Vector3> path);
 
     std::unique_ptr<class CtmExecutor> m_ctm;
-    std::unique_ptr<class CtMEnablerHook> m_ctmEnablerHook;
     MovementSettings m_settings;
     QTimer m_pathExecutorTimer;  ///< Таймер для проверки продвижения по пути.
 
