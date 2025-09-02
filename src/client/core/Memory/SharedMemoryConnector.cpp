@@ -21,8 +21,8 @@ bool SharedMemoryConnector::open(const std::wstring& name, size_t size)
     }
 
     // 3. Отображаем view
-    m_pSharedMem = MapViewOfFile(m_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, size);
-    if (m_pSharedMem == nullptr)
+    m_pRawMem = MapViewOfFile(m_hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, size);
+    if (m_pRawMem == nullptr)
     {
         CloseHandle(m_hMapFile);
         CloseHandle(m_hMutex);
@@ -33,20 +33,25 @@ bool SharedMemoryConnector::open(const std::wstring& name, size_t size)
 
 void SharedMemoryConnector::close()
 {
-    if (m_pSharedMem) UnmapViewOfFile(m_pSharedMem);
+    if (m_pRawMem) UnmapViewOfFile(m_pRawMem);
     if (m_hMapFile) CloseHandle(m_hMapFile);
     if (m_hMutex) CloseHandle(m_hMutex);
-    m_pSharedMem = nullptr;
+    m_pRawMem = nullptr;
     m_hMapFile = NULL;
     m_hMutex = NULL;
 }
 
+SharedData* SharedMemoryConnector::getMemoryPtr()
+{
+    return static_cast<SharedData*>(m_pRawMem);
+}
+
 bool SharedMemoryConnector::write(const SharedData& data)
 {
-    if (!m_pSharedMem || !m_hMutex) return false;
+    if (!m_pRawMem || !m_hMutex) return false;
     if (WaitForSingleObject(m_hMutex, 100) == WAIT_OBJECT_0)
     {
-        memcpy(m_pSharedMem, &data, sizeof(SharedData));
+        memcpy(m_pRawMem, &data, sizeof(SharedData));
         ReleaseMutex(m_hMutex);
         return true;
     }

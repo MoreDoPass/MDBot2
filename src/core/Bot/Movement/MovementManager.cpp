@@ -1,108 +1,99 @@
 #include "MovementManager.h"
 #include <QLoggingCategory>
-#include "core/Bot/Character/Character.h"  // Предполагается, что у нас есть доступ к Character для получения текущей позиции
+#include "core/Bot/Character/Character.h"
 
 Q_LOGGING_CATEGORY(logMovementManager, "mdbot.movementmanager")
 
-MovementManager::MovementManager(MemoryManager* memory, Character* character, QObject* parent)
-    : QObject(parent), m_character(character), m_ctm(std::make_unique<CtmExecutor>(memory))
+/**
+ * @brief Конструктор. Теперь принимает SharedMemoryManager.
+ */
+MovementManager::MovementManager(SharedMemoryManager* sharedMemory, Character* character, QObject* parent)
+    : QObject(parent), m_sharedMemory(sharedMemory), m_character(character)
 {
-    qCInfo(logMovementManager) << "MovementManager создан";
+    if (!m_sharedMemory)
+    {
+        qFatal("MovementManager created with a null SharedMemoryManager!");
+    }
+    qCInfo(logMovementManager) << "MovementManager created.";
 
     connect(&m_pathExecutorTimer, &QTimer::timeout, this, &MovementManager::updatePathExecution);
 }
 
 MovementManager::~MovementManager()
 {
-    qCInfo(logMovementManager) << "MovementManager уничтожен";
+    qCInfo(logMovementManager) << "MovementManager destroyed.";
 }
 
-bool MovementManager::moveTo(float x, float y, float z, const MovementSettings& settings)
+/**
+ * @brief Отправляет команду на движение в DLL через общую память.
+ */
+bool MovementManager::moveTo(const Vector3& position)
 {
-    m_settings = settings;
+    if (!m_sharedMemory)
+    {
+        qCCritical(logMovementManager) << "Cannot move: SharedMemoryManager is not available.";
+        return false;
+    }
 
-    Vector3 currentPos = m_character->GetPosition();
-    quint32 mapId = m_character->GetMapId();
+    SharedData* data = m_sharedMemory->getMemoryPtr();
+    if (!data)
+    {
+        qCCritical(logMovementManager) << "Cannot move: Failed to get pointer to shared memory.";
+        return false;
+    }
 
-    qCInfo(logMovementManager) << "Запрос на поиск пути от" << currentPos.x << currentPos.y << currentPos.z << "до" << x
-                               << y << z;
+    // Проверяем, не занята ли DLL выполнением другой команды.
+    // В будущем можно будет сделать очередь команд.
+    if (data->commandToDll.type != ClientCommandType::None)
+    {
+        qCWarning(logMovementManager) << "Cannot move: DLL is busy with another command.";
+        return false;
+    }
 
-    return true;  // Запрос успешно отправлен
+    // Формируем и отправляем команду
+    data->commandToDll.type = ClientCommandType::MoveTo;
+    data->commandToDll.position = position;
+
+    qCInfo(logMovementManager) << "MoveTo command sent to DLL for position (" << position.x << "," << position.y << ","
+                               << position.z << ")";
+
+    return true;
 }
 
 void MovementManager::stop()
 {
-    // TODO: реализовать остановку движения (CtM IDLE или другое действие)
-    qCInfo(logMovementManager) << "Остановка движения (stop)";
+    qCInfo(logMovementManager) << "Stop command sent to DLL.";
     m_pathExecutorTimer.stop();
-    // Например, можно вызвать CtM с action NONE или IDLE
-    m_ctm->moveTo(0, 0, 0, 0.1f);  // Пример: CtM в текущую позицию с минимальной дистанцией
     m_currentPath.clear();
     m_currentPathIndex = -1;
+
+    if (!m_sharedMemory) return;
+    SharedData* data = m_sharedMemory->getMemoryPtr();
+    if (!data) return;
+
+    // Отправляем команду Stop
+    data->commandToDll.type = ClientCommandType::Stop;
 }
+
+// Методы onPathFound и updatePathExecution пока остаются без изменений,
+// так как они отвечают за логику следования по пути, а не за сам CtM.
+// Мы их адаптируем, когда будем реализовывать полноценное движение по путевым точкам.
+// Сейчас для теста нам достаточно простого moveTo.
 
 void MovementManager::onPathFound(std::vector<Vector3> path)
 {
-    if (path.empty())
-    {
-        qCWarning(logMovementManager) << "Путь не найден или пуст.";
-        m_currentPath.clear();
-        m_currentPathIndex = -1;
-        m_pathExecutorTimer.stop();
-        return;
-    }
-
-    qCInfo(logMovementManager) << "Путь успешно найден. Точек:" << path.size() << ". Начинаем движение.";
-    m_currentPath = std::move(path);
-    m_currentPathIndex = 0;
-
-    const auto& nextPoint = m_currentPath[m_currentPathIndex];
-    m_ctm->moveTo(nextPoint.x, nextPoint.y, nextPoint.z, m_settings.ctmDistance);
-
-    m_pathExecutorTimer.start(250);  // Проверяем каждые 250 мс
+    // TODO: Адаптировать для новой системы
 }
 
 void MovementManager::updatePathExecution()
 {
-    if (m_currentPath.empty() || m_currentPathIndex < 0)
-    {
-        return;  // Нет активного пути
-    }
-
-    Vector3 currentPos = m_character->GetPosition();
-    quint32 mapId = m_character->GetMapId();
-
-    const auto& targetPoint = m_currentPath[m_currentPathIndex];
-
-    // Простая проверка дистанции (в 2D, без учета Z)
-    const float dx = currentPos.x - targetPoint.x;
-    const float dy = currentPos.y - targetPoint.y;
-    const float distanceSq = dx * dx + dy * dy;
-
-    // Считаем, что точка достигнута, если мы достаточно близко
-    if (distanceSq < (m_settings.ctmDistance * m_settings.ctmDistance))
-    {
-        m_currentPathIndex++;
-        if (m_currentPathIndex >= m_currentPath.size())
-        {
-            // Путь завершен
-            qCInfo(logMovementManager) << "Цель достигнута. Путь завершен.";
-            stop();
-        }
-        else
-        {
-            // Движемся к следующей точке
-            const auto& nextPoint = m_currentPath[m_currentPathIndex];
-            qCDebug(logMovementManager) << "Движемся к следующей точке пути #" << m_currentPathIndex;
-            m_ctm->moveTo(nextPoint.x, nextPoint.y, nextPoint.z, m_settings.ctmDistance);
-        }
-    }
+    // TODO: Адаптировать для новой системы
 }
 
 void MovementManager::setSettings(const MovementSettings& settings)
 {
     m_settings = settings;
-    qCInfo(logMovementManager) << "Настройки движения обновлены";
+    qCInfo(logMovementManager) << "Movement settings updated.";
 }
 
 MovementSettings MovementManager::settings() const

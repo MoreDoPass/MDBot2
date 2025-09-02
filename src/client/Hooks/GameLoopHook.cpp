@@ -8,6 +8,25 @@
 #include "shared/Structures/Player.h"  // Включает Unit и WorldObject
 #include "shared/Structures/GameObject.h"
 
+namespace CtmOffsets
+{
+constexpr uintptr_t CTM_X_COORD = 0xCA1264;
+constexpr uintptr_t CTM_Y_COORD = 0xCA1268;
+constexpr uintptr_t CTM_Z_COORD = 0xCA126C;
+constexpr uintptr_t CTM_ACTION_TYPE = 0xCA11F4;
+// Добавим и другие, если понадобятся (GUID, distance и т.д.)
+}  // namespace CtmOffsets
+
+// --- НОВЫЙ БЛОК: Перечисление типов действий CtM из старого CtmExecutor ---
+enum class CtmActionType : int
+{
+    MOVE_TO = 4,
+    INTERACT_NPC = 5,
+    LOOT = 6,
+    ATTACK_GUID = 11,
+    // и т.д.
+};
+
 extern SharedMemoryConnector* g_sharedMemory;
 extern VisibleObjectsHook* g_visibleObjectsHook;  // <-- Добавляем доступ к сборщику
 
@@ -21,48 +40,72 @@ void GameLoopHook::handler(const Registers* regs)
         return;
     }
 
-    std::set<uintptr_t> objectPointers = g_visibleObjectsHook->getAndClearObjects();
-    if (objectPointers.empty())
+    // Получаем прямой доступ к общей памяти
+    SharedData* sharedData = g_sharedMemory->getMemoryPtr();
+    if (!sharedData)
     {
         return;
     }
 
-    SharedData dataToSend{};
+    // --- НОВЫЙ БЛОК: ОБРАБОТКА КОМАНД ОТ КЛИЕНТА (через запись в память) ---
+    if (sharedData->commandToDll.type != ClientCommandType::None)
+    {
+        ClientCommand& cmd = sharedData->commandToDll;
+        char debugMsg[256];
 
-    // TODO: Заполнять реальные данные игрока, когда найдем на него указатель.
-    dataToSend.player.health = 1234;
-    dataToSend.player.maxHealth = 5678;
-    dataToSend.player.position = {1.0f, 2.0f, 3.0f};
+        switch (cmd.type)
+        {
+            case ClientCommandType::MoveTo:
+            {
+                // 1. Записываем координаты
+                *(float*)CtmOffsets::CTM_X_COORD = cmd.position.x;
+                *(float*)CtmOffsets::CTM_Y_COORD = cmd.position.y;
+                *(float*)CtmOffsets::CTM_Z_COORD = cmd.position.z;
 
-    dataToSend.visibleObjectCount = 0;
+                // 2. В самом конце, как триггер, записываем тип действия
+                *(int*)CtmOffsets::CTM_ACTION_TYPE = static_cast<int>(CtmActionType::MOVE_TO);
+
+                sprintf_s(debugMsg, "MDBot_Client: Executed MoveTo command to (%.2f, %.2f, %.2f) via memory write.",
+                          cmd.position.x, cmd.position.y, cmd.position.z);
+                OutputDebugStringA(debugMsg);
+                break;
+            }
+            // Сюда можно будет добавить case Attack, case Interact и т.д.
+            default:
+                break;
+        }
+
+        // КРИТИЧЕСКИ ВАЖНО: Сбрасываем команду после выполнения
+        cmd.type = ClientCommandType::None;
+    }
+    // --- КОНЕЦ НОВОГО БЛОКА ---
+
+    // --- Сбор данных об объектах (старый код) ---
+    std::set<uintptr_t> objectPointers = g_visibleObjectsHook->getAndClearObjects();
+
+    // Заполняем данные об объектах в sharedData
+    sharedData->visibleObjectCount = 0;
     for (uintptr_t objectPtr : objectPointers)
     {
-        if (dataToSend.visibleObjectCount >= MAX_VISIBLE_OBJECTS)
+        if (sharedData->visibleObjectCount >= MAX_VISIBLE_OBJECTS)
         {
             break;
         }
 
-        // --- НАЧАЛО НОВОЙ ЛОГИКИ ---
         try
         {
-            // 1. "Накладываем" базовый трафарет, чтобы прочитать общие поля.
             WorldObject* worldObject = reinterpret_cast<WorldObject*>(objectPtr);
+            GameObjectInfo& info = sharedData->visibleObjects[sharedData->visibleObjectCount];
 
-            // Получаем ссылку на наш "транспортный" объект, который будем заполнять.
-            GameObjectInfo& info = dataToSend.visibleObjects[dataToSend.visibleObjectCount];
-
-            // 2. Заполняем поля, которые есть у всех.
             info.guid = worldObject->guid;
             info.type = worldObject->objectType;
             info.baseAddress = objectPtr;
 
-            // 3. Используем switch по типу, чтобы прочитать специфичные поля.
             switch (info.type)
             {
                 case GameObjectType::Unit:
                 case GameObjectType::Player:
                 {
-                    // "Накладываем" более детальный трафарет для Unit/Player.
                     Unit* unit = reinterpret_cast<Unit*>(objectPtr);
                     info.position = unit->position;
                     info.health = unit->health;
@@ -74,30 +117,28 @@ void GameLoopHook::handler(const Registers* regs)
                 }
                 case GameObjectType::GameObject:
                 {
-                    // "Накладываем" трафарет для руды/травы.
                     GameObject* gameObject = reinterpret_cast<GameObject*>(objectPtr);
                     info.position = gameObject->position;
-                    // Другие поля (health, level и т.д.) останутся нулями.
                     break;
                 }
                 default:
                 {
-                    // Для неизвестных типов мы уже заполнили guid, type и baseAddress.
-                    // Остальные поля останутся нулями. Можно ничего не делать.
                     break;
                 }
             }
-            dataToSend.visibleObjectCount++;
+            sharedData->visibleObjectCount++;
         }
         catch (...)
         {
-            // Безопасность: если указатель на объект оказался "битым" и мы упали
-            // при чтении, мы просто проигнорируем этот объект и перейдем к следующему.
-            // В идеале здесь нужен __try/__except, но для начала и так сойдет.
             OutputDebugStringA("MDBot_Client: CRITICAL - Exception caught while reading object memory.");
         }
-        // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
     }
 
-    g_sharedMemory->write(dataToSend);
+    // TODO: Заполнять реальные данные игрока
+    sharedData->player.health = 1234;
+    sharedData->player.maxHealth = 5678;
+    sharedData->player.position = {1.0f, 2.0f, 3.0f};
+
+    // Старый вызов g_sharedMemory->write() больше не нужен,
+    // так как мы пишем в sharedData напрямую.
 }

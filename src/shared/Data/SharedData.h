@@ -41,6 +41,35 @@ struct PlayerData
 };
 
 /**
+ * @enum ClientCommandType
+ * @brief Перечисление типов команд, которые основное приложение (клиент) может отправить в DLL.
+ */
+enum class ClientCommandType : uint32_t
+{
+    None = 0,  ///< Нет команды, состояние по умолчанию.
+    MoveTo,    ///< Команда на перемещение к указанным координатам.
+    Interact,  ///< Команда на взаимодействие с целью (NPC, руда, трава).
+    Attack,    ///< Команда на атаку цели.
+    Stop       ///< Команда на прекращение текущего действия.
+};
+
+/**
+ * @struct ClientCommand
+ * @brief Структура для передачи одной команды от клиента в DLL.
+ */
+struct ClientCommand
+{
+    /// @brief Тип выполняемой команды. DLL сбросит его в None после выполнения.
+    ClientCommandType type = ClientCommandType::None;
+
+    /// @brief Координаты для команды MoveTo.
+    Vector3 position;
+
+    /// @brief GUID цели для команд Interact или Attack.
+    uint64_t targetGuid = 0;
+};
+
+/**
  * @struct SharedData
  * @brief Главная структура для общей памяти (Shared Memory).
  */
@@ -49,4 +78,6 @@ struct SharedData
     PlayerData player;
     int32_t visibleObjectCount = 0;
     GameObjectInfo visibleObjects[MAX_VISIBLE_OBJECTS];
+
+    ClientCommand commandToDll;
 };

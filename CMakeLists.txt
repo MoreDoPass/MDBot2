@@ -41,7 +41,6 @@ add_executable(MDBot2
     src/gui/Bot/DebugWidget/DebugWidget.cpp
     src/gui/Bot/MainWidget/MainWidget.cpp
     src/core/Bot/Movement/MovementManager.cpp
-    src/core/Bot/Movement/CtM/CtM.cpp
 )
 
 # --- Линкуем MDBot2 со всеми нужными библиотеками ---
@@ -113,7 +112,6 @@ add_test(NAME InlineHookTest COMMAND test_InlineHook)
 
 add_executable(test_CtM
     tests/test_CtM.cpp
-    src/core/Bot/Movement/CtM/CtM.cpp
 )
 target_include_directories(test_CtM PRIVATE
     src

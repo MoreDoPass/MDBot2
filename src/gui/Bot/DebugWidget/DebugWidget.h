@@ -2,7 +2,8 @@
 
 #include <QWidget>
 #include <QLoggingCategory>
-#include "Shared/Data/SharedData.h"  // <-- Подключаем, чтобы использовать в слоте
+#include <QPoint>  // <-- ДОБАВЛЕНО: для позиции курсора
+#include "Shared/Data/SharedData.h"
 
 // Прямые объявления для ускорения компиляции
 class Bot;
@@ -20,7 +21,6 @@ class DebugWidget : public QWidget
     explicit DebugWidget(Bot* bot, QWidget* parent = nullptr);
     ~DebugWidget() override;
 
-    // --- НОВЫЙ ИНТЕРФЕЙС ---
    public slots:
     /**
      * @brief Слот для приема готовых данных от бота.
@@ -40,11 +40,19 @@ class DebugWidget : public QWidget
      * @brief Слот, вызываемый при нажатии на кнопку "Обновить".
      */
     void onRefreshClicked();
-    // --- КОНЕЦ НОВОГО ИНТЕРФЕЙСА ---
+
+    /**
+     * @brief Слот для отображения контекстного меню таблицы.
+     * @param pos Позиция, в которой был сделан клик.
+     */
+    void showContextMenu(const QPoint& pos);
 
    private:
     Bot* m_bot;
     QPushButton* m_refreshButton = nullptr;
     QTableView* m_objectsTable = nullptr;
     QStandardItemModel* m_objectsModel = nullptr;
+
+    /// @brief Храним последние полученные данные, чтобы иметь к ним доступ из контекстного меню.
+    SharedData m_lastReceivedData;
 };

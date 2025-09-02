@@ -106,3 +106,8 @@ bool SharedMemoryManager::write(const SharedData& data)
     }
     return false;
 }
+
+SharedData* SharedMemoryManager::getMemoryPtr()
+{
+    return static_cast<SharedData*>(m_pSharedMem);
+}

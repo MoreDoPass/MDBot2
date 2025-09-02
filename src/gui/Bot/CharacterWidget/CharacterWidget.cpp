@@ -46,16 +46,6 @@ CharacterWidget::CharacterWidget(Character* character, MovementManager* movement
         controlGroup->setLayout(controlLayout);
         mainLayout->addWidget(controlGroup);
 
-        // --- Блок навигации (новый) ---
-        auto* navGroup = new QGroupBox(tr("Тестовая навигация"));
-        auto* navLayout = new QVBoxLayout();
-        m_navSchoolButton = new QPushButton(tr("школа"), this);
-        m_navEronaButton = new QPushButton(tr("Эрона"), this);
-        navLayout->addWidget(m_navSchoolButton);
-        navLayout->addWidget(m_navEronaButton);
-        navGroup->setLayout(navLayout);
-        mainLayout->addWidget(navGroup);
-
         mainLayout->addStretch();  // Добавляем растяжитель в конец
         setLayout(mainLayout);
 
@@ -70,35 +60,6 @@ CharacterWidget::CharacterWidget(Character* character, MovementManager* movement
                         m_autoUpdateTimer->stop();
                 });
         connect(m_autoUpdateTimer, &QTimer::timeout, this, &CharacterWidget::onAutoUpdateTimeout);
-
-        // Соединения для навигационных кнопок
-        connect(m_navSchoolButton, &QPushButton::clicked, this,
-                [this]()
-                {
-                    if (!m_movementManager)
-                    {
-                        logError("MovementManager не инициализирован!");
-                        return;
-                    }
-                    MovementSettings settings;
-                    settings.navigationType = MovementSettings::NavigationType::MMap;
-                    m_movementManager->moveTo(10150.19629f, -6004.603516f, 110.1543732f, settings);
-                    qCInfo(logCharacterWidget) << "Отправлена команда навигации в точку 'школа'";
-                });
-
-        connect(m_navEronaButton, &QPushButton::clicked, this,
-                [this]()
-                {
-                    if (!m_movementManager)
-                    {
-                        logError("MovementManager не инициализирован!");
-                        return;
-                    }
-                    MovementSettings settings;
-                    settings.navigationType = MovementSettings::NavigationType::MMap;
-                    m_movementManager->moveTo(10347.58008f, -6358.060547f, 33.44028473f, settings);
-                    qCInfo(logCharacterWidget) << "Отправлена команда навигации в точку 'Эрона'";
-                });
 
         if (m_character)
         {
