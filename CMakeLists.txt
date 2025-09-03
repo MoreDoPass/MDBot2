@@ -26,6 +26,8 @@ add_subdirectory(src/shared)
 add_subdirectory(tools/MDHack)
 
 
+file(GLOB_RECURSE BEHAVIOR_FILES "src/core/Bot/Behaviors/*.cpp")
+file(GLOB_RECURSE MODULE_FILES "src/core/Bot/Modules/*.cpp")
 # --- Создаем основной исполняемый файл ---
 # Здесь мы перечисляем ТОЛЬКО те cpp-файлы, которые не входят ни в одну из core-библиотек.
 # В основном это файлы из папок gui/ и некоторые общие.
@@ -41,6 +43,8 @@ add_executable(MDBot2
     src/gui/Bot/DebugWidget/DebugWidget.cpp
     src/gui/Bot/MainWidget/MainWidget.cpp
     src/core/Bot/Movement/MovementManager.cpp
+    ${BEHAVIOR_FILES}
+    ${MODULE_FILES}
 )
 
 # --- Линкуем MDBot2 со всеми нужными библиотеками ---
@@ -61,6 +65,7 @@ target_link_libraries(MDBot2 PRIVATE
     Core_InjectionManager
     Core_Shared
     Core_Utils
+    Core_BehaviorTree
 )
 
 # Указываем, где искать заголовочные файлы

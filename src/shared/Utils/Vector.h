@@ -20,4 +20,17 @@ struct Vector3
      * @param z - Компонент Z.
      */
     Vector3(float x, float y, float z) : x(x), y(y), z(z) {}
+
+    /**
+     * @brief Рассчитывает квадрат расстояния до другой точки.
+     * @details Быстрее, чем обычный Distance, так как не использует извлечение корня.
+     *          Идеально для сравнения расстояний ("что ближе?").
+     */
+    float DistanceSq(const Vector3& other) const
+    {
+        float dx = x - other.x;
+        float dy = y - other.y;
+        float dz = z - other.z;
+        return dx * dx + dy * dy + dz * dz;
+    }
 };

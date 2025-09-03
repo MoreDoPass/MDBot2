@@ -53,11 +53,11 @@ void GameObjectManager::updateFromSharedMemory(const SharedData& data)
             auto it = m_gameObjects.find(info.guid);
             if (it == m_gameObjects.end())
             {
-                // --- ФАБРИКА ОБЪЕКТОВ ---
-                // Объекта нет в кэше - создаем новый в зависимости от типа.
+                // --- ОБЪЕКТА НЕТ В КЭШЕ - СОЗДАЕМ И ЗАПОЛНЯЕМ ---
                 std::unique_ptr<WorldObject> newObject = nullptr;
-                GameObjectType type = static_cast<GameObjectType>(info.type);
+                const GameObjectType type = static_cast<GameObjectType>(info.type);
 
+                // Фабрика объектов: создаем экземпляр нужного класса
                 switch (type)
                 {
                     case GameObjectType::Player:
@@ -70,18 +70,35 @@ void GameObjectManager::updateFromSharedMemory(const SharedData& data)
                         newObject = std::make_unique<GameObject>();
                         break;
                     default:
-                        // Для неизвестных или неинтересных нам типов создаем базовый WorldObject
                         newObject = std::make_unique<WorldObject>();
                         break;
                 }
 
-                // Копируем базовые данные из SharedData в нашу полную структуру.
-                // В будущем здесь будет полное копирование всех полей.
                 if (newObject)
                 {
+                    // --- ПОЛНОЕ КОПИРОВАНИЕ ДАННЫХ ИЗ SHARED MEMORY ---
                     newObject->guid = info.guid;
                     newObject->objectType = type;
-                    // TODO: Копировать остальные поля (HP, позицию и т.д.)
+
+                    // Копируем позицию и другие специфичные для типа данные.
+                    // Используем static_cast, так как мы точно знаем тип из 'info.type'.
+                    switch (type)
+                    {
+                        case GameObjectType::Player:
+                            static_cast<Player*>(newObject.get())->position = info.position;
+                            // TODO: Копировать здоровье, ману и т.д. для игроков
+                            break;
+                        case GameObjectType::Unit:
+                            static_cast<Unit*>(newObject.get())->position = info.position;
+                            // TODO: Копировать здоровье, ману и т.д. для юнитов
+                            break;
+                        case GameObjectType::GameObject:
+                            static_cast<GameObject*>(newObject.get())->position = info.position;
+                            break;
+                        default:
+                            // Для WorldObject и других типов без позиции ничего не делаем
+                            break;
+                    }
 
                     qCDebug(logGOM) << "New object cached. GUID:" << Qt::hex << info.guid << Qt::dec
                                     << "Type:" << static_cast<uint32_t>(info.type);
@@ -90,8 +107,24 @@ void GameObjectManager::updateFromSharedMemory(const SharedData& data)
             }
             else
             {
-                // Объект уже есть в кэше - просто обновляем его данные.
-                // TODO: Обновлять поля (HP, позицию и т.д.)
+                // --- ОБЪЕКТ УЖЕ ЕСТЬ В КЭШЕ - ОБНОВЛЯЕМ ЕГО ДАННЫЕ ---
+                WorldObject* existingObject = it->second.get();
+
+                // Обновляем позицию и другие поля, которые могут меняться
+                switch (existingObject->objectType)
+                {
+                    case GameObjectType::Player:
+                        static_cast<Player*>(existingObject)->position = info.position;
+                        break;
+                    case GameObjectType::Unit:
+                        static_cast<Unit*>(existingObject)->position = info.position;
+                        break;
+                    case GameObjectType::GameObject:
+                        static_cast<GameObject*>(existingObject)->position = info.position;
+                        break;
+                    default:
+                        break;
+                }
             }
         }
 

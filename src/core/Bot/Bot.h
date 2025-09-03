@@ -15,6 +15,8 @@
 
 // Прямое объявление, чтобы не включать полный заголовок
 class GetComputerNameHook;
+class BTNode;
+class BTContext;
 
 /**
  * @brief Класс Bot — основной класс для управления одним персонажем WoW.
@@ -97,5 +99,10 @@ class Bot : public QObject
 
     SharedMemoryManager m_sharedMemory;  ///< Менеджер для работы с общей памятью
     std::wstring m_sharedMemoryName;     ///< Уникальное имя блока общей памяти
+
+    /// @brief Указатель на корень дерева поведения ("мозг") этого бота.
+    std::unique_ptr<BTNode> m_behaviorTreeRoot;
+    /// @brief Указатель на контекст ("сумка с инструментами") для дерева.
+    std::unique_ptr<BTContext> m_btContext;
 };
 Q_DECLARE_LOGGING_CATEGORY(logBot)

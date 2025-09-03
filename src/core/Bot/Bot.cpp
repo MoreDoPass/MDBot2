@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <QDebug>
 
+#include "core/Bot/Modules/OreGrindModule.h"
+
 Q_LOGGING_CATEGORY(logBot, "mdbot.bot")
 
 Bot::Bot(qint64 processId, const QString& processName, const QString& computerNameToSet, QObject* parent)
@@ -61,6 +63,20 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
             m_gameObjectManager = new GameObjectManager(&m_memoryManager, this);
             // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Передаем m_sharedMemory вместо m_memoryManager ---
             m_movementManager = new MovementManager(&m_sharedMemory, m_character, this);
+
+            // --- ИНИЦИАЛИЗАЦИЯ МОЗГА ---
+            qCInfo(logBot) << "Initializing Behavior Tree...";
+
+            // 1. Создаем "сумку с инструментами" и кладем туда все менеджеры
+            m_btContext = std::make_unique<BTContext>();
+            m_btContext->character = m_character;
+            m_btContext->gameObjectManager = m_gameObjectManager;
+            m_btContext->movementManager = m_movementManager;
+
+            // 2. Просим наш "модуль" построить нам "мозг"
+            m_behaviorTreeRoot = OreGrindModule::build();
+
+            qCInfo(logBot) << "Behavior Tree initialized successfully.";
         }
     }
     catch (const std::exception& ex)
@@ -126,7 +142,7 @@ void Bot::run()
 {
     if (m_running)
     {
-        qCWarning(logBot) << "Бот уже запущен!";
+        qCWarning(logBot) << "Bot is already running!";
         return;
     }
     m_running = true;
@@ -137,39 +153,40 @@ void Bot::run()
             {
                 try
                 {
-                    qCInfo(logBot) << "Старт основного цикла бота для PID:" << m_processId;
+                    qCInfo(logBot) << "Starting main bot loop for PID:" << m_processId;
                     while (m_running)
                     {
+                        // --- НОВАЯ ЛОГИКА ЦИКЛА ---
+
+                        // 1. ОБНОВЛЯЕМ ДАННЫЕ ИЗ ИГРЫ
                         SharedData dataFromDll;
                         if (m_sharedMemory.read(dataFromDll))
                         {
-                            // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
-                            // 1. Передаем данные в менеджеры для обновления их состояния.
-                            //    Теперь Bot не занимается логикой обновления, а только делегирует ее.
                             if (m_gameObjectManager)
                             {
                                 m_gameObjectManager->updateFromSharedMemory(dataFromDll);
                             }
                             if (m_character)
                             {
-                                // TODO: Создать метод m_character->updateFromSharedMemory(dataFromDll.player);
-                                // Пока что оставим старый метод для персонажа.
                                 m_character->updateFromMemory();
                             }
-
-                            // 2. Отправляем сигнал для GUI (например, для DebugWidget)
-                            emit debugDataReady(dataFromDll);
                         }
 
-                        // Пауза между итерациями. 200мс соответствует 5 обновлениям в секунду,
-                        // как и в нашей DLL.
-                        QThread::msleep(200);
+                        // 2. ЗАПУСКАЕМ "МОЗГ" (делаем один "тик" дерева)
+                        if (m_behaviorTreeRoot && m_btContext)
+                        {
+                            m_behaviorTreeRoot->tick(*m_btContext);
+                        }
+
+                        // 3. ПАУЗА
+                        // Поставим 1 секунду, чтобы не спамить в лог во время теста
+                        QThread::msleep(1000);
                     }
-                    qCInfo(logBot) << "Бот завершил работу для PID:" << m_processId;
+                    qCInfo(logBot) << "Bot loop finished for PID:" << m_processId;
                 }
                 catch (const std::exception& ex)
                 {
-                    qCCritical(logBot) << "Ошибка в run():" << ex.what();
+                    qCCritical(logBot) << "Exception in run():" << ex.what();
                 }
                 emit finished();
             });

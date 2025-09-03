@@ -7,6 +7,17 @@ set(CMAKE_AUTOMOC ON)
 # ${CMAKE_CURRENT_SOURCE_DIR} - это .../src/core, нам нужен уровень выше.
 set(CORE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
+# --- Behavior Tree ---
+# Создаем статическую библиотеку для универсальных компонентов дерева
+add_library(Core_BehaviorTree STATIC
+    BehaviorTree/SequenceNode.cpp
+)
+target_include_directories(Core_BehaviorTree PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+# Вот она, недостающая часть!
+target_link_libraries(Core_BehaviorTree PUBLIC Qt6::Core)
+
 # --- Библиотека MemoryManager ---
 add_library(Core_MemoryManager STATIC
     MemoryManager/MemoryManager.cpp
