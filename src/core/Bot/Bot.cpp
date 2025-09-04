@@ -60,7 +60,7 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
             }
 
             m_character = new Character(&m_memoryManager, this);
-            m_gameObjectManager = new GameObjectManager(&m_memoryManager, this);
+            m_gameObjectManager = new GameObjectManager(this);
             // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Передаем m_sharedMemory вместо m_memoryManager ---
             m_movementManager = new MovementManager(&m_sharedMemory, m_character, this);
         }

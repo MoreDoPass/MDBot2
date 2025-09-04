@@ -1,141 +1,67 @@
 #include "GameObjectManager.h"
-
 #include <set>  // Для отслеживания видимых GUID
+#include <QLoggingCategory>
 
 /**
  * @brief Категория логирования для GameObjectManager.
  */
 Q_LOGGING_CATEGORY(logGOM, "mdbot.gom")
 
-// === СМЕЩЕНИЯ ДЛЯ ОБХОДА СПИСКА ОБЪЕКТОВ ===
-// ВАЖНО: Эти значения нужно найти для вашего клиента игры!
-namespace ObjectManagerOffsets
+/**
+ * @brief Конструктор.
+ * @param parent Родительский QObject.
+ */
+GameObjectManager::GameObjectManager(QObject* parent) : QObject(parent)
 {
-/// @brief Смещение до указателя на следующий объект в связном списке.
-constexpr int32_t NextObject = 0x3C;
-/// @brief Смещение до GUID объекта от его базового адреса.
-constexpr int32_t Guid = 0x30;
-/// @brief Смещение до типа объекта от его базового адреса.
-constexpr int32_t Type = 0x14;
-}  // namespace ObjectManagerOffsets
-
-GameObjectManager::GameObjectManager(MemoryManager* memoryManager, QObject* parent)
-    : QObject(parent), m_memoryManager(memoryManager)
-{
-    if (!m_memoryManager)
-    {
-        // Использование qFatal здесь оправдано, так как без MemoryManager
-        // дальнейшая работа невозможна и это критическая ошибка конфигурации.
-        qFatal("GameObjectManager created with nullptr MemoryManager!");
-    }
     qCInfo(logGOM) << "GameObjectManager created.";
 }
 
 GameObjectManager::~GameObjectManager()
 {
     qCInfo(logGOM) << "GameObjectManager destroyed. Clearing" << m_gameObjects.size() << "cached objects.";
-    m_gameObjects.clear();  // unique_ptr сам удалит все объекты
+    m_gameObjects.clear();
 }
 
+/**
+ * @brief Обновляет внутренний кэш объектов на основе свежих данных из общей памяти.
+ * @details Этот метод выполняет три действия:
+ *          1. Обновляет данные для уже существующих в кэше объектов.
+ *          2. Добавляет в кэш новые объекты, которых раньше не было видно.
+ *          3. Удаляет из кэша объекты, которые пропали из зоны видимости.
+ *          Вся сложная логика по созданию иерархии объектов удалена,
+ *          теперь мы просто копируем готовую структуру GameObjectInfo.
+ * @param data Структура SharedData, прочитанная из Shared Memory.
+ */
 void GameObjectManager::updateFromSharedMemory(const SharedData& data)
 {
     try
     {
         std::set<uint64_t> visibleGuids;
+        // visibleGuids.reserve(data.visibleObjectCount); // <-- ЭТА СТРОКА БЫЛА ОШИБОЧНОЙ И УДАЛЕНА
 
         for (int i = 0; i < data.visibleObjectCount; ++i)
         {
             const GameObjectInfo& info = data.visibleObjects[i];
-            if (info.guid == 0) continue;
+            if (info.guid == 0)
+            {
+                continue;
+            }
 
             visibleGuids.insert(info.guid);
 
-            auto it = m_gameObjects.find(info.guid);
-            if (it == m_gameObjects.end())
-            {
-                // --- ОБЪЕКТА НЕТ В КЭШЕ - СОЗДАЕМ И ЗАПОЛНЯЕМ ---
-                std::unique_ptr<WorldObject> newObject = nullptr;
-                const GameObjectType type = static_cast<GameObjectType>(info.type);
-
-                // Фабрика объектов: создаем экземпляр нужного класса
-                switch (type)
-                {
-                    case GameObjectType::Player:
-                        newObject = std::make_unique<Player>();
-                        break;
-                    case GameObjectType::Unit:
-                        newObject = std::make_unique<Unit>();
-                        break;
-                    case GameObjectType::GameObject:
-                        newObject = std::make_unique<GameObject>();
-                        break;
-                    default:
-                        newObject = std::make_unique<WorldObject>();
-                        break;
-                }
-
-                if (newObject)
-                {
-                    // --- ПОЛНОЕ КОПИРОВАНИЕ ДАННЫХ ИЗ SHARED MEMORY ---
-                    newObject->guid = info.guid;
-                    newObject->objectType = type;
-                    newObject->entryId = info.entryId;
-
-                    // Копируем позицию и другие специфичные для типа данные.
-                    // Используем static_cast, так как мы точно знаем тип из 'info.type'.
-                    switch (type)
-                    {
-                        case GameObjectType::Player:
-                            static_cast<Player*>(newObject.get())->position = info.position;
-                            // TODO: Копировать здоровье, ману и т.д. для игроков
-                            break;
-                        case GameObjectType::Unit:
-                            static_cast<Unit*>(newObject.get())->position = info.position;
-                            // TODO: Копировать здоровье, ману и т.д. для юнитов
-                            break;
-                        case GameObjectType::GameObject:
-                            static_cast<GameObject*>(newObject.get())->position = info.position;
-                            break;
-                        default:
-                            // Для WorldObject и других типов без позиции ничего не делаем
-                            break;
-                    }
-
-                    qCDebug(logGOM) << "New object cached. GUID:" << Qt::hex << info.guid << Qt::dec
-                                    << "Type:" << static_cast<uint32_t>(info.type);
-                    m_gameObjects[info.guid] = std::move(newObject);
-                }
-            }
-            else
-            {
-                // --- ОБЪЕКТ УЖЕ ЕСТЬ В КЭШЕ - ОБНОВЛЯЕМ ЕГО ДАННЫЕ ---
-                WorldObject* existingObject = it->second.get();
-
-                // Обновляем позицию и другие поля, которые могут меняться
-                switch (existingObject->objectType)
-                {
-                    case GameObjectType::Player:
-                        static_cast<Player*>(existingObject)->position = info.position;
-                        break;
-                    case GameObjectType::Unit:
-                        static_cast<Unit*>(existingObject)->position = info.position;
-                        break;
-                    case GameObjectType::GameObject:
-                        static_cast<GameObject*>(existingObject)->position = info.position;
-                        break;
-                    default:
-                        break;
-                }
-            }
+            // Просто и эффективно: вставляем или обновляем GameObjectInfo в нашей карте.
+            // Если объекта с таким guid нет, он будет создан. Если есть, его данные обновятся.
+            m_gameObjects[info.guid] = info;
         }
 
         // Удаляем из нашего кэша объекты, которые больше не видны.
+        // Используем стандартный идиоматический способ удаления элементов из map во время итерации.
         for (auto it = m_gameObjects.begin(); it != m_gameObjects.end();)
         {
             if (visibleGuids.find(it->first) == visibleGuids.end())
             {
                 qCDebug(logGOM) << "Object removed from cache (out of sight). GUID:" << Qt::hex << it->first;
-                it = m_gameObjects.erase(it);
+                it = m_gameObjects.erase(it);  // erase возвращает итератор на следующий элемент
             }
             else
             {
@@ -149,31 +75,56 @@ void GameObjectManager::updateFromSharedMemory(const SharedData& data)
     }
 }
 
-WorldObject* GameObjectManager::getObjectByGuid(uint64_t guid) const
+/**
+ * @brief Найти объект в кэше по его уникальному идентификатору (GUID).
+ * @param guid GUID искомого объекта.
+ * @return Константный указатель на GameObjectInfo, если объект найден, иначе nullptr.
+ */
+const GameObjectInfo* GameObjectManager::getObjectByGuid(uint64_t guid) const
 {
+    // find() не изменяет map, поэтому его можно вызывать в const-методе
     auto it = m_gameObjects.find(guid);
     if (it != m_gameObjects.end())
     {
-        return it->second.get();
+        // Возвращаем указатель на значение в карте
+        return &it->second;
     }
     return nullptr;
 }
 
-std::vector<WorldObject*> GameObjectManager::getObjectsByType(GameObjectType type) const
+/**
+ * @brief Получить все объекты заданного типа.
+ * @param type Тип искомых объектов (Unit, GameObject, Player и т.д.).
+ * @return Вектор константных указателей на GameObjectInfo.
+ */
+std::vector<const GameObjectInfo*> GameObjectManager::getObjectsByType(GameObjectType type) const
 {
-    std::vector<WorldObject*> result;
-    result.reserve(m_gameObjects.size());
+    std::vector<const GameObjectInfo*> result;
+    // Резервируем память, чтобы избежать многократных реалокаций,
+    // хотя вряд ли объектов одного типа будет очень много.
+    result.reserve(m_gameObjects.size() / 4);  // Грубое предположение
     for (const auto& pair : m_gameObjects)
     {
-        if (pair.second && pair.second->objectType == type)
+        // pair.second - это сам объект GameObjectInfo
+        if (pair.second.type == type)
         {
-            result.push_back(pair.second.get());
+            result.push_back(&pair.second);
         }
     }
     return result;
 }
 
-WorldObject* GameObjectManager::getTargetObject() const
+/**
+ * @brief Получить все объекты, которые есть в кэше.
+ * @return Вектор константных указателей на все закэшированные GameObjectInfo.
+ */
+std::vector<const GameObjectInfo*> GameObjectManager::getAllObjects() const
 {
-    return nullptr;
+    std::vector<const GameObjectInfo*> result;
+    result.reserve(m_gameObjects.size());
+    for (const auto& pair : m_gameObjects)
+    {
+        result.push_back(&pair.second);
+    }
+    return result;
 }

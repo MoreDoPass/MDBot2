@@ -1,8 +1,6 @@
 #include "MoveToTargetAction.h"
 #include "core/BehaviorTree/BTNode.h"
-#include "shared/Structures/GameObject.h"
-#include "shared/Structures/Unit.h"
-#include "shared/Structures/Player.h"  // Нам нужен и Player
+#include "Shared/Data/SharedData.h"
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(logMoveToAction, "mdbot.bt.action.moveto")
@@ -23,68 +21,35 @@ NodeStatus MoveToTargetAction::tick(BTContext& context)
         return NodeStatus::Failure;
     }
 
-    WorldObject* targetObject = gom->getObjectByGuid(context.currentTargetGuid);
+    // Теперь getObjectByGuid возвращает const GameObjectInfo*
+    const GameObjectInfo* targetObject = gom->getObjectByGuid(context.currentTargetGuid);
     if (!targetObject)
     {
         qCWarning(logMoveToAction) << "MoveToTargetAction failed: Can't find object with GUID:" << Qt::hex
                                    << context.currentTargetGuid;
+        // Сбрасываем GUID, т.к. цель больше не валидна
         context.currentTargetGuid = 0;
         return NodeStatus::Failure;
     }
 
-    // --- НОВАЯ, ПРАВИЛЬНАЯ ЛОГИКА ПОЛУЧЕНИЯ ПОЗИЦИИ ---
-    Vector3 targetPosition;
-    bool positionFound = false;
-
-    // Проверяем тип объекта, который нам дала игра
-    switch (targetObject->objectType)
-    {
-        case GameObjectType::GameObject:
-        {
-            // Мы уверены, что это GameObject, поэтому static_cast безопасен
-            GameObject* gameObj = static_cast<GameObject*>(targetObject);
-            targetPosition = gameObj->position;
-            positionFound = true;
-            break;
-        }
-        case GameObjectType::Unit:
-        {
-            // Это может быть моб или NPC
-            Unit* unit = static_cast<Unit*>(targetObject);
-            targetPosition = unit->position;
-            positionFound = true;
-            break;
-        }
-        case GameObjectType::Player:
-        {
-            // Это игрок. У него структура как у Unit.
-            Player* player = static_cast<Player*>(targetObject);
-            targetPosition = player->position;
-            positionFound = true;
-            break;
-        }
-        default:
-            // Для других типов (Item, Corpse и т.д.) у нас нет позиции
-            qCWarning(logMoveToAction) << "MoveToTargetAction failed: Target type"
-                                       << static_cast<int>(targetObject->objectType) << "has no position.";
-            return NodeStatus::Failure;
-    }
-
-    if (!positionFound)
-    {
-        // На всякий случай, хотя default в switch должен это покрывать
-        return NodeStatus::Failure;
-    }
+    // --- ГЛАВНОЕ УПРОЩЕНИЕ ---
+    // У GameObjectInfo поле position есть всегда. Больше не нужны switch и касты.
+    const Vector3& targetPosition = targetObject->position;
 
     // --- Дальнейшая логика остается без изменений ---
+
+    // Проверяем, не находимся ли мы уже достаточно близко к цели (5*5=25)
     if (context.character->GetPosition().DistanceSq(targetPosition) < 25.0f)
     {
         qCInfo(logMoveToAction) << "Already at target. Success.";
         return NodeStatus::Success;
     }
 
+    // Отправляем команду на движение
     movementManager->moveTo(targetPosition);
     qCInfo(logMoveToAction) << "MoveTo command sent for target" << Qt::hex << context.currentTargetGuid;
 
+    // Возвращаем Running, т.к. движение - это длительный процесс.
+    // Дерево будет проверять статус на следующих тиках.
     return NodeStatus::Running;
 }
