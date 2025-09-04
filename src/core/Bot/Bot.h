@@ -5,6 +5,7 @@
 #include <QThread>
 #include <QString>
 #include <memory>  // Для std::unique_ptr
+
 #include "core/MemoryManager/MemoryManager.h"
 #include "core/HookManager/HookManager.h"
 #include "core/Bot/Character/Character.h"
@@ -19,6 +20,7 @@
 class GetComputerNameHook;
 class BTNode;
 class BTContext;
+class QTimer;
 
 /**
  * @brief Класс Bot — основной класс для управления одним персонажем WoW.
@@ -49,7 +51,7 @@ class Bot : public QObject
     /**
      * @brief Основной цикл работы бота. Этот метод выполняется в отдельном потоке.
      */
-    void run();
+    void tick();
 
    private:
     qint64 m_processId;             ///< PID процесса WoW
@@ -61,6 +63,8 @@ class Bot : public QObject
     GameObjectManager* m_gameObjectManager = nullptr;
     bool m_running = false;
     QThread* m_thread = nullptr;
+
+    QTimer* m_tickTimer = nullptr;  ///< Таймер, который будет задавать "пульс" работы бота.
 
     std::unique_ptr<GetComputerNameHook> m_computerNameHook;
     SharedMemoryManager m_sharedMemory;

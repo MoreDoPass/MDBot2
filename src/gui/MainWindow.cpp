@@ -88,51 +88,25 @@ void MainWindow::addProcessTab(const ProcessInfo& info, const QString& computerN
 {
     try
     {
-        // Создаём объект Bot с PID процесса и именем компьютера (только через new!)
+        // 1. Создаём объект Bot. Он сам позаботится о своем потоке.
+        // Мы делаем его дочерним для BotWidget, чтобы он удалился вместе с вкладкой.
         Bot* bot = new Bot(static_cast<qint64>(info.pid), QString::fromStdWString(info.name), computerName);
-        if (!bot)
-        {
-            qCCritical(mainWindowLog) << "Не удалось создать объект Bot для PID:" << info.pid;
-            LogWindow::appendLog(QString("Не удалось создать объект Bot для PID: %1").arg(info.pid));
-            QMessageBox::critical(this, "Ошибка", QString("Не удалось создать объект Bot для PID: %1").arg(info.pid));
-            return;
-        }
 
-        // Создаём поток для бота
-        QThread* botThread = new QThread(this);  // Поток удалится вместе с MainWindow
-        bot->moveToThread(botThread);
+        // 2. Создаём виджет BotWidget для управления этим ботом
+        BotWidget* botWidget = new BotWidget(bot, this);
+        // Устанавливаем bot дочерним объектом для botWidget.
+        // Когда вкладка (botWidget) закроется, bot будет автоматически удален.
+        bot->setParent(botWidget);
 
-        // УДАЛЕНО: connect(botThread, &QThread::started, bot, &Bot::run);
+        // --- УДАЛЕНА ВСЯ СТАРАЯ ЛОГИКА УПРАВЛЕНИЯ ПОТОКОМ ---
+        // QThread* botThread = new QThread(this);
+        // bot->moveToThread(botThread);
+        // connect(bot, &Bot::finished, botThread, &QThread::quit);
+        // connect(bot, &Bot::finished, bot, &Bot::deleteLater); // <-- ГЛАВНАЯ ОШИБКА УДАЛЕНА
+        // connect(botThread, &QThread::finished, botThread, &QThread::deleteLater);
+        // botThread->start();
 
-        connect(bot, &Bot::finished, botThread, &QThread::quit);
-        connect(bot, &Bot::finished, bot, &Bot::deleteLater);
-        connect(botThread, &QThread::finished, botThread, &QThread::deleteLater);
-
-        // Запускаем поток. Бот теперь просто ждет команд в этом потоке.
-        botThread->start();
-
-        // Создаём виджет BotWidget для управления этим ботом
-        BotWidget* botWidget = nullptr;
-        try
-        {
-            botWidget = new BotWidget(bot, this);
-        }
-        catch (const std::exception& ex)
-        {
-            qCCritical(mainWindowLog) << "Ошибка при создании BotWidget:" << ex.what();
-            LogWindow::appendLog(QString("Ошибка при создании BotWidget: %1").arg(ex.what()));
-            QMessageBox::critical(this, "Ошибка", QString("Ошибка при создании BotWidget: %1").arg(ex.what()));
-            return;
-        }
-        catch (...)
-        {
-            qCCritical(mainWindowLog) << "Неизвестная ошибка при создании BotWidget";
-            LogWindow::appendLog("Неизвестная ошибка при создании BotWidget");
-            QMessageBox::critical(this, "Ошибка", "Неизвестная ошибка при создании BotWidget");
-            return;
-        }
-
-        // Добавляем вкладку с именем процесса и PID
+        // 3. Добавляем вкладку с готовым виджетом
         QString tabName = QString::fromStdWString(info.name) + QString(" [%1]").arg(info.pid);
         tabWidget->addTab(botWidget, tabName);
         qCInfo(mainWindowLog) << "Вкладка для бота успешно добавлена: " << tabName;

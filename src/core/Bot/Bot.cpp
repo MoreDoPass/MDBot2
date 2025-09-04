@@ -61,8 +61,23 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
 
             m_character = new Character(&m_memoryManager, this);
             m_gameObjectManager = new GameObjectManager(this);
-            // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Передаем m_sharedMemory вместо m_memoryManager ---
             m_movementManager = new MovementManager(&m_sharedMemory, m_character, this);
+
+            // --- НОВАЯ ЛОГИКА С ПОТОКОМ И ТАЙМЕРОМ ---
+            m_thread = new QThread(this);         // Создаем поток
+            m_tickTimer = new QTimer();           // Создаем таймер...
+            m_tickTimer->setInterval(150);        // ...задаем ему интервал...
+            m_tickTimer->moveToThread(m_thread);  // ...и перемещаем таймер в новый поток
+
+            // Сам объект Bot тоже перемещаем в новый поток, чтобы его слоты выполнялись там
+            this->moveToThread(m_thread);
+
+            // Когда таймер сработает, будет вызван наш слот tick()
+            connect(m_tickTimer, &QTimer::timeout, this, &Bot::tick);
+            // Когда поток завершится, он корректно удалит таймер
+            connect(m_thread, &QThread::finished, m_tickTimer, &QObject::deleteLater);
+
+            m_thread->start();  // Запускаем поток и его цикл обработки событий
         }
     }
     catch (const std::exception& ex)
@@ -77,7 +92,13 @@ Bot::~Bot()
     try
     {
         qCInfo(logBot) << "Destroying Bot object for process with PID:" << m_processId;
-        stop();
+
+        // Корректно останавливаем и завершаем поток
+        if (m_thread && m_thread->isRunning())
+        {
+            m_thread->quit();      // Говорим циклу событий завершиться
+            m_thread->wait(1000);  // Ждем до 1 секунды, пока поток реально остановится
+        }
 
         if (m_computerNameHook)
         {
@@ -90,7 +111,6 @@ Bot::~Bot()
         delete m_character;
         delete m_movementManager;
 
-        // --- 3. ОСВОБОЖДАЕМ ОБЩУЮ ПАМЯТЬ ---
         m_sharedMemory.close();
         qCInfo(logBot) << "Shared memory closed.";
     }
@@ -150,7 +170,7 @@ void Bot::start(const BotStartSettings& settings)
     }
     else
     {
-        qCCritical(logBot) << "Attempted to start with an unknown or unsupported module type.";
+        qCritical(logBot) << "Attempted to start with an unknown or unsupported module type.";
         m_behaviorTreeRoot.reset();
         return;
     }
@@ -161,75 +181,61 @@ void Bot::start(const BotStartSettings& settings)
         return;
     }
 
-    // 2. Создание и запуск потока
-    qCInfo(logBot) << "Behavior Tree built successfully. Creating and starting bot thread...";
-
-    // Переносим всю логику создания и запуска потока сюда
-    m_thread = new QThread();
-    // Перемещаем сам объект Bot в этот новый поток
-    this->moveToThread(m_thread);
-    // Когда поток запустится, он вызовет наш слот run()
-    connect(m_thread, &QThread::started, this, &Bot::run);
-    // Когда мы дадим команду на выход из потока (stop()), он пошлет сигнал finished
-    connect(this, &Bot::finished, m_thread, &QThread::quit);
-    // Когда поток реально завершится, он сам себя удалит
-    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
-
+    qCInfo(logBot) << "Behavior Tree built successfully. Starting tick timer...";
     m_running = true;
-    m_thread->start();  // ЗАПУСКАЕМ ПОТОК
+
+    // --- ИСПРАВЛЕНИЕ: Запускаем таймер потокобезопасно ---
+    // Просим поток, в котором живет таймер, выполнить его метод start().
+    QMetaObject::invokeMethod(m_tickTimer, "start");
 }
 
-void Bot::run()
+void Bot::tick()
 {
-    // Теперь этот метод - это просто бесконечный цикл, который выполняется в потоке
-    qCInfo(logBot) << "Bot loop started in thread" << QThread::currentThreadId();
+    // Если флаг m_running сброшен, просто ничего не делаем.
+    // Это нужно, чтобы избежать лишнего тика после вызова stop().
+    if (!m_running) return;
 
     try
     {
-        while (m_running)
+        // 1. ОБНОВЛЯЕМ ДАННЫЕ ИЗ ИГРЫ
+        SharedData dataFromDll;
+        if (m_sharedMemory.read(dataFromDll))
         {
-            // 1. ОБНОВЛЯЕМ ДАННЫЕ ИЗ ИГРЫ
-            SharedData dataFromDll;
-            if (m_sharedMemory.read(dataFromDll))
+            if (m_gameObjectManager)
             {
-                if (m_gameObjectManager)
-                {
-                    m_gameObjectManager->updateFromSharedMemory(dataFromDll);
-                }
-                if (m_character)
-                {
-                    m_character->updateFromMemory();
-                }
+                m_gameObjectManager->updateFromSharedMemory(dataFromDll);
             }
-
-            // 2. ЗАПУСКАЕМ "МОЗГ"
-            if (m_behaviorTreeRoot && m_btContext)
+            if (m_character)
             {
-                m_behaviorTreeRoot->tick(*m_btContext);
+                m_character->updateFromMemory();
             }
+        }
 
-            // 3. ПАУЗА (уменьшаем, чтобы бот был отзывчивее)
-            QThread::msleep(150);
+        // 2. ЗАПУСКАЕМ "МОЗГ"
+        if (m_behaviorTreeRoot && m_btContext)
+        {
+            m_behaviorTreeRoot->tick(*m_btContext);
         }
     }
     catch (const std::exception& ex)
     {
-        qCCritical(logBot) << "Exception in run():" << ex.what();
+        qCCritical(logBot) << "Exception in tick():" << ex.what();
+        stop();  // Останавливаем бота в случае исключения
     }
-
-    qCInfo(logBot) << "Bot loop finished for PID:" << m_processId;
-    // Когда цикл закончится, посылаем сигнал, что мы закончили
-    emit finished();
 }
 
 void Bot::stop()
 {
     if (!m_running) return;
 
-    // Просто выставляем флаг. Цикл в run() увидит это и сам завершится.
-    // Поток остановится штатно.
-    qCInfo(logBot) << "Stop requested. Signalling run() loop to finish.";
+    qCInfo(logBot) << "Stop requested. Stopping tick timer.";
     m_running = false;
+
+    // --- ИСПРАВЛЕНИЕ: Останавливаем таймер потокобезопасно ---
+    QMetaObject::invokeMethod(m_tickTimer, "stop");
+
+    // Испускаем сигнал, чтобы GUI мог обновить свое состояние (например, кнопки).
+    emit finished();
 }
 
 void Bot::provideDebugData()
