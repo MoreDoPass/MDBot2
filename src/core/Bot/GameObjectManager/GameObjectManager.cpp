@@ -79,6 +79,7 @@ void GameObjectManager::updateFromSharedMemory(const SharedData& data)
                     // --- ПОЛНОЕ КОПИРОВАНИЕ ДАННЫХ ИЗ SHARED MEMORY ---
                     newObject->guid = info.guid;
                     newObject->objectType = type;
+                    newObject->entryId = info.entryId;
 
                     // Копируем позицию и другие специфичные для типа данные.
                     // Используем static_cast, так как мы точно знаем тип из 'info.type'.

@@ -16,6 +16,7 @@ struct GameObjectInfo
     uint64_t guid = 0;
     uintptr_t baseAddress = 0;  // Указатель на объект в памяти игры
     GameObjectType type = GameObjectType::None;
+    int32_t entryId = 0;
     Vector3 position;
 
     // --- Данные для Unit/Player ---

@@ -16,7 +16,7 @@ DebugWidget::DebugWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot
     m_objectsModel = new QStandardItemModel(this);
 
     m_objectsTable->setModel(m_objectsModel);
-    m_objectsModel->setHorizontalHeaderLabels({tr("GUID"), tr("Тип"), tr("Позиция (X, Y, Z)")});
+    m_objectsModel->setHorizontalHeaderLabels({tr("GUID"), tr("Тип"), tr("Entry ID"), tr("Позиция (X, Y, Z)")});
     m_objectsTable->horizontalHeader()->setStretchLastSection(true);
     m_objectsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
@@ -55,18 +55,19 @@ void DebugWidget::onDebugDataReady(const SharedData& data)
     // --- КОНЕЦ НОВОГО КОДА ---
 
     m_objectsModel->clear();
-    m_objectsModel->setHorizontalHeaderLabels({tr("GUID"), tr("Тип"), tr("Позиция (X, Y, Z)")});
+    m_objectsModel->setHorizontalHeaderLabels({tr("GUID"), tr("Тип"), tr("Entry ID"), tr("Позиция (X, Y, Z)")});
 
     for (int i = 0; i < data.visibleObjectCount; ++i)
     {
         const GameObjectInfo& obj = data.visibleObjects[i];
         auto* guidItem = new QStandardItem(QString("0x%1").arg(obj.guid, 16, 16, QChar('0')));
         auto* typeItem = new QStandardItem(QString::number(static_cast<uint32_t>(obj.type)));
+        auto* entryIdItem = new QStandardItem(QString::number(obj.entryId));  // <-- ДОБАВЛЯЕМ НОВЫЙ ЭЛЕМЕНТ
         auto* posItem = new QStandardItem(QStringLiteral("(%1, %2, %3)")
                                               .arg(obj.position.x, 0, 'f', 2)
                                               .arg(obj.position.y, 0, 'f', 2)
                                               .arg(obj.position.z, 0, 'f', 2));
-        m_objectsModel->appendRow({guidItem, typeItem, posItem});
+        m_objectsModel->appendRow({guidItem, typeItem, entryIdItem, posItem});  // <-- ДОБАВЛЯЕМ В СТРОКУ
     }
 }
 

@@ -33,6 +33,31 @@ extern VisibleObjectsHook* g_visibleObjectsHook;  // <-- Добавляем до
 // Передаем в конструктор базового класса наш целевой адрес
 GameLoopHook::GameLoopHook() : InlineHook(0x728A27) {}
 
+/**
+ * @brief Извлекает Entry ID из полного 64-битного GUID.
+ * @details Работает только для типов Unit и GameObject. Для остальных вернет 0.
+ * @param guid Полный 64-битный GUID.
+ * @param type Тип объекта, чтобы не пытаться извлечь ID у игрока.
+ * @return 32-битный Entry ID или 0, если ID не применим.
+ */
+static int32_t getEntryIdFromGuid(uint64_t guid, GameObjectType type)
+{
+    if (type == GameObjectType::Unit || type == GameObjectType::GameObject)
+    {
+        // 1. Сдвигаем GUID на 24 бита вправо, чтобы отсечь уникальный счетчик.
+        // 2. Применяем маску 0x00FFFFFF, чтобы отсечь старшие байты (тип, подтип и т.д.).
+        return static_cast<int32_t>((guid >> 24) & 0x00FFFFFF);
+    }
+    return 0;
+}
+
+/**
+ * @brief Обработчик главного игрового цикла.
+ * @details Вызывается очень часто. Отвечает за две задачи:
+ *          1. Выполнение команд, полученных от MDBot2.exe (например, MoveTo).
+ *          2. Сбор данных о видимых объектах и отправка их в MDBot2.exe.
+ * @param regs Указатель на сохраненные регистры процессора (не используется в этой функции).
+ */
 void GameLoopHook::handler(const Registers* regs)
 {
     if (!g_sharedMemory || !g_visibleObjectsHook)
@@ -47,7 +72,7 @@ void GameLoopHook::handler(const Registers* regs)
         return;
     }
 
-    // --- НОВЫЙ БЛОК: ОБРАБОТКА КОМАНД ОТ КЛИЕНТА (через запись в память) ---
+    // --- 1. ОБРАБОТКА КОМАНД ОТ КЛИЕНТА ---
     if (sharedData->commandToDll.type != ClientCommandType::None)
     {
         ClientCommand& cmd = sharedData->commandToDll;
@@ -57,12 +82,9 @@ void GameLoopHook::handler(const Registers* regs)
         {
             case ClientCommandType::MoveTo:
             {
-                // 1. Записываем координаты
                 *(float*)CtmOffsets::CTM_X_COORD = cmd.position.x;
                 *(float*)CtmOffsets::CTM_Y_COORD = cmd.position.y;
                 *(float*)CtmOffsets::CTM_Z_COORD = cmd.position.z;
-
-                // 2. В самом конце, как триггер, записываем тип действия
                 *(int*)CtmOffsets::CTM_ACTION_TYPE = static_cast<int>(CtmActionType::MOVE_TO);
 
                 sprintf_s(debugMsg, "MDBot_Client: Executed MoveTo command to (%.2f, %.2f, %.2f) via memory write.",
@@ -70,20 +92,16 @@ void GameLoopHook::handler(const Registers* regs)
                 OutputDebugStringA(debugMsg);
                 break;
             }
-            // Сюда можно будет добавить case Attack, case Interact и т.д.
             default:
                 break;
         }
-
-        // КРИТИЧЕСКИ ВАЖНО: Сбрасываем команду после выполнения
+        // Сбрасываем команду после выполнения
         cmd.type = ClientCommandType::None;
     }
-    // --- КОНЕЦ НОВОГО БЛОКА ---
 
-    // --- Сбор данных об объектах (старый код) ---
+    // --- 2. СБОР ДАННЫХ ОБ ОБЪЕКТАХ ---
     std::set<uintptr_t> objectPointers = g_visibleObjectsHook->getAndClearObjects();
 
-    // Заполняем данные об объектах в sharedData
     sharedData->visibleObjectCount = 0;
     for (uintptr_t objectPtr : objectPointers)
     {
@@ -97,9 +115,13 @@ void GameLoopHook::handler(const Registers* regs)
             WorldObject* worldObject = reinterpret_cast<WorldObject*>(objectPtr);
             GameObjectInfo& info = sharedData->visibleObjects[sharedData->visibleObjectCount];
 
+            // --- ЗАПОЛНЕНИЕ ДАННЫХ ---
             info.guid = worldObject->guid;
             info.type = worldObject->objectType;
             info.baseAddress = objectPtr;
+
+            // --- ГЛАВНОЕ ИЗМЕНЕНИЕ: ВЫЧИСЛЯЕМ И ЗАПИСЫВАЕМ ENTRY ID ---
+            info.entryId = getEntryIdFromGuid(info.guid, info.type);
 
             switch (info.type)
             {
@@ -138,7 +160,4 @@ void GameLoopHook::handler(const Registers* regs)
     sharedData->player.health = 1234;
     sharedData->player.maxHealth = 5678;
     sharedData->player.position = {1.0f, 2.0f, 3.0f};
-
-    // Старый вызов g_sharedMemory->write() больше не нужен,
-    // так как мы пишем в sharedData напрямую.
 }

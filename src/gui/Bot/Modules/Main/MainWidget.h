@@ -1,15 +1,17 @@
+// ФАЙЛ: src/gui/Bot/Modules/Main/MainWidget.h
+
 #pragma once
 
 #include <QWidget>
-#include <QPushButton>
-#include <QLabel>
 #include <QLoggingCategory>
+#include "core/Bot/Settings/BotSettings.h"  // <-- Подключаем наш "контракт"
 
+// Прямые объявления, чтобы не включать лишние заголовки
 class Bot;
+class QPushButton;
+class QLabel;
+class QComboBox;
 
-/**
- * @brief Категория логирования для MainWidget.
- */
 Q_DECLARE_LOGGING_CATEGORY(logMainWidget)
 
 /**
@@ -24,9 +26,10 @@ class MainWidget : public QWidget
 
    signals:
     /**
-     * @brief Сигнал, когда пользователь нажал "Старт".
+     * @brief Сигнал, который отправляется, когда пользователь нажал "Старт".
+     * @param type Тип модуля, который нужно запустить.
      */
-    void startRequested();
+    void startRequested(ModuleType type);
     /**
      * @brief Сигнал, когда пользователь нажал "Стоп".
      */
@@ -42,5 +45,7 @@ class MainWidget : public QWidget
     QPushButton* m_startButton = nullptr;
     QPushButton* m_stopButton = nullptr;
     QLabel* m_statusLabel = nullptr;
+    QComboBox* m_moduleComboBox = nullptr;  // Выпадающий список для выбора модуля
+
     void updateStatus(const QString& status, bool error = false);
 };

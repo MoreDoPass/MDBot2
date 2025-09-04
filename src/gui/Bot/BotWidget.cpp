@@ -1,8 +1,11 @@
 #include "BotWidget.h"
 #include "core/Bot/Bot.h"
-#include "gui/Bot/CharacterWidget/CharacterWidget.h"
-#include "gui/Bot/DebugWidget/DebugWidget.h"
-#include "gui/Bot/MainWidget/MainWidget.h"
+#include "gui/Bot/Modules/Character/CharacterWidget.h"
+#include "gui/Bot/Modules/Main/MainWidget.h"
+#include "gui/Bot/Modules/Debug/DebugWidget.h"
+#include "gui/Bot/Modules/Gathering/GatheringWidget.h"
+#include "gui/Bot/Modules/Settings/SettingsWidget.h"
+
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -22,45 +25,44 @@ BotWidget::BotWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot)
             layout->addWidget(pidLabel);
             m_tabWidget = new QTabWidget(this);
 
-            // Вкладка "Главное"
             m_mainWidget = new MainWidget(m_bot, this);
             m_tabWidget->addTab(m_mainWidget, tr("Главное"));
 
-            // Вкладка "Character"
+            m_settingsWidget = new SettingsWidget(this);
+            m_tabWidget->addTab(m_settingsWidget, tr("Настройки"));
+
+            m_gatheringWidget = new GatheringWidget(this);
+            m_tabWidget->addTab(m_gatheringWidget, tr("Сбор ресурсов"));
+
             if (m_bot->character())
             {
                 m_characterWidget = new CharacterWidget(m_bot->character(), m_bot->movementManager(), this);
-                m_tabWidget->addTab(m_characterWidget, tr("Character"));
+                m_tabWidget->addTab(m_characterWidget, tr("Персонаж"));
             }
             else
             {
-                auto* errorLabel = new QLabel(tr("Ошибка: Character не инициализирован!"), this);
-                m_tabWidget->addTab(errorLabel, tr("Character"));
+                m_tabWidget->addTab(new QLabel(tr("Ошибка: Character не инициализирован!"), this), tr("Персонаж"));
                 qCCritical(logBotWidget) << "Character не инициализирован в BotWidget!";
             }
 
-            // Вкладка "Отладка"
             m_debugWidget = new DebugWidget(m_bot, this);
             m_tabWidget->addTab(m_debugWidget, tr("Отладка"));
 
             layout->addWidget(m_tabWidget);
 
             // --- ГЛАВНЫЕ СОЕДИНЕНИЯ ---
-            // 1. Соединяем кнопки Старт/Стоп
-            connect(m_mainWidget, &MainWidget::startRequested, m_bot, &Bot::run);
+            // MainWidget просит запустить -> BotWidget собирает все настройки и командует боту
+            connect(m_mainWidget, &MainWidget::startRequested, this, &BotWidget::onStartRequested);
+            // MainWidget просит остановить -> BotWidget напрямую командует боту
             connect(m_mainWidget, &MainWidget::stopRequested, m_bot, &Bot::stop);
-
-            // 2. Соединяем наш новый механизм "запрос-ответ"
-            //    ЗАПРОС: DebugWidget -> Bot
+            // Виджет отладки просит данные -> BotWidget напрямую просит бота их предоставить
             connect(m_debugWidget, &DebugWidget::refreshRequested, m_bot, &Bot::provideDebugData);
-            //    ОТВЕТ: Bot -> DebugWidget
+            // Бот предоставил данные -> BotWidget передает их виджету отладки
             connect(m_bot, &Bot::debugDataReady, m_debugWidget, &DebugWidget::onDebugDataReady);
-            // --- КОНЕЦ ГЛАВНЫХ СОЕДИНЕНИЙ ---
         }
         else
         {
-            auto* errorLabel = new QLabel(tr("Ошибка: Bot не инициализирован!"), this);
-            layout->addWidget(errorLabel);
+            layout->addWidget(new QLabel(tr("Ошибка: Bot не инициализирован!"), this));
             qCCritical(logBotWidget) << "Bot не инициализирован в BotWidget!";
         }
         setLayout(layout);
@@ -69,24 +71,35 @@ BotWidget::BotWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot)
     {
         qCCritical(logBotWidget) << "Ошибка при создании BotWidget:" << ex.what();
     }
-    catch (...)
-    {
-        qCCritical(logBotWidget) << "Неизвестная ошибка при создании BotWidget";
-    }
 }
 
 BotWidget::~BotWidget()
 {
-    try
+    qCInfo(logBotWidget) << "Уничтожение BotWidget";
+}
+
+void BotWidget::onStartRequested(ModuleType type)
+{
+    if (!m_bot) return;
+
+    qCInfo(logBotWidget) << "Start requested. Gathering settings for module type:" << static_cast<int>(type);
+
+    // 1. Создаем пустую структуру для настроек
+    BotStartSettings settings;
+
+    // 2. Заполняем ее данными из всех виджетов
+    settings.activeModule = type;  // Тип модуля мы получили из сигнала
+
+    if (m_settingsWidget)
     {
-        qCInfo(logBotWidget) << "Уничтожение BotWidget";
+        settings.globalSettings = m_settingsWidget->getSettings();
     }
-    catch (const std::exception& ex)
+    if (m_gatheringWidget)
     {
-        qCCritical(logBotWidget) << "Ошибка при уничтожении BotWidget:" << ex.what();
+        settings.gatheringSettings = m_gatheringWidget->getSettings();
     }
-    catch (...)
-    {
-        qCCritical(logBotWidget) << "Неизвестная ошибка при уничтожении BotWidget";
-    }
+    // Здесь можно будет добавить получение настроек из других виджетов (GrindingWidget и т.д.)
+
+    // 3. Отправляем боту одну, полностью собранную структуру
+    m_bot->start(settings);
 }

@@ -120,3 +120,14 @@ target_link_libraries(Core_GameObject PUBLIC
     Core_Utils
     Qt6::Core
 )
+
+add_library(Core_Database STATIC
+    Database/ResourceDatabase.cpp
+)
+target_include_directories(Core_Database PUBLIC
+    ${CORE_INCLUDE_DIR}
+)
+# Database не зависит от других наших либ, только от Qt (для QString, QVector и т.д. в будущем)
+target_link_libraries(Core_Database PUBLIC
+    Qt6::Core
+)

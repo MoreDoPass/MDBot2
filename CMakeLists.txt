@@ -39,9 +39,11 @@ add_executable(MDBot2
     src/gui/Logging/LogWindow.cpp
     src/core/Bot/Bot.cpp
     src/gui/Bot/BotWidget.cpp
-    src/gui/Bot/CharacterWidget/CharacterWidget.cpp
-    src/gui/Bot/DebugWidget/DebugWidget.cpp
-    src/gui/Bot/MainWidget/MainWidget.cpp
+    src/gui/Bot/Modules/Main/MainWidget.cpp
+    src/gui/Bot/Modules/Settings/SettingsWidget.cpp
+    src/gui/Bot/Modules/Character/CharacterWidget.cpp
+    src/gui/Bot/Modules/Debug/DebugWidget.cpp
+    src/gui/Bot/Modules/Gathering/GatheringWidget.cpp
     src/core/Bot/Movement/MovementManager.cpp
     ${BEHAVIOR_FILES}
     ${MODULE_FILES}
@@ -65,6 +67,7 @@ target_link_libraries(MDBot2 PRIVATE
     Core_InjectionManager
     Core_Shared
     Core_Utils
+    Core_Database
     Core_BehaviorTree
 )
 

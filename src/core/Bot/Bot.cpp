@@ -63,20 +63,6 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
             m_gameObjectManager = new GameObjectManager(&m_memoryManager, this);
             // --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Передаем m_sharedMemory вместо m_memoryManager ---
             m_movementManager = new MovementManager(&m_sharedMemory, m_character, this);
-
-            // --- ИНИЦИАЛИЗАЦИЯ МОЗГА ---
-            qCInfo(logBot) << "Initializing Behavior Tree...";
-
-            // 1. Создаем "сумку с инструментами" и кладем туда все менеджеры
-            m_btContext = std::make_unique<BTContext>();
-            m_btContext->character = m_character;
-            m_btContext->gameObjectManager = m_gameObjectManager;
-            m_btContext->movementManager = m_movementManager;
-
-            // 2. Просим наш "модуль" построить нам "мозг"
-            m_behaviorTreeRoot = OreGrindModule::build();
-
-            qCInfo(logBot) << "Behavior Tree initialized successfully.";
         }
     }
     catch (const std::exception& ex)
@@ -138,73 +124,112 @@ GameObjectManager* Bot::gameObjectManager() const
     return m_gameObjectManager;
 }
 
-void Bot::run()
+void Bot::start(const BotStartSettings& settings)
 {
     if (m_running)
     {
-        qCWarning(logBot) << "Bot is already running!";
+        qCWarning(logBot) << "Bot is already running, stop it first.";
         return;
     }
-    m_running = true;
-    if (!m_thread)
+
+    // 1. Подготовка
+    m_currentSettings = settings;
+    qCInfo(logBot) << "Starting bot with module:" << static_cast<int>(m_currentSettings.activeModule);
+
+    if (!m_btContext)
     {
-        m_thread = QThread::create(
-            [this]()
-            {
-                try
-                {
-                    qCInfo(logBot) << "Starting main bot loop for PID:" << m_processId;
-                    while (m_running)
-                    {
-                        // --- НОВАЯ ЛОГИКА ЦИКЛА ---
-
-                        // 1. ОБНОВЛЯЕМ ДАННЫЕ ИЗ ИГРЫ
-                        SharedData dataFromDll;
-                        if (m_sharedMemory.read(dataFromDll))
-                        {
-                            if (m_gameObjectManager)
-                            {
-                                m_gameObjectManager->updateFromSharedMemory(dataFromDll);
-                            }
-                            if (m_character)
-                            {
-                                m_character->updateFromMemory();
-                            }
-                        }
-
-                        // 2. ЗАПУСКАЕМ "МОЗГ" (делаем один "тик" дерева)
-                        if (m_behaviorTreeRoot && m_btContext)
-                        {
-                            m_behaviorTreeRoot->tick(*m_btContext);
-                        }
-
-                        // 3. ПАУЗА
-                        // Поставим 1 секунду, чтобы не спамить в лог во время теста
-                        QThread::msleep(1000);
-                    }
-                    qCInfo(logBot) << "Bot loop finished for PID:" << m_processId;
-                }
-                catch (const std::exception& ex)
-                {
-                    qCCritical(logBot) << "Exception in run():" << ex.what();
-                }
-                emit finished();
-            });
-        connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
-        m_thread->start();
+        m_btContext = std::make_unique<BTContext>();
+        m_btContext->character = m_character;
+        m_btContext->gameObjectManager = m_gameObjectManager;
+        m_btContext->movementManager = m_movementManager;
     }
+
+    if (m_currentSettings.activeModule == ModuleType::Gathering)
+    {
+        m_behaviorTreeRoot = OreGrindModule::build(m_currentSettings);
+    }
+    else
+    {
+        qCCritical(logBot) << "Attempted to start with an unknown or unsupported module type.";
+        m_behaviorTreeRoot.reset();
+        return;
+    }
+
+    if (!m_behaviorTreeRoot)
+    {
+        qCCritical(logBot) << "Failed to build Behavior Tree for the selected module.";
+        return;
+    }
+
+    // 2. Создание и запуск потока
+    qCInfo(logBot) << "Behavior Tree built successfully. Creating and starting bot thread...";
+
+    // Переносим всю логику создания и запуска потока сюда
+    m_thread = new QThread();
+    // Перемещаем сам объект Bot в этот новый поток
+    this->moveToThread(m_thread);
+    // Когда поток запустится, он вызовет наш слот run()
+    connect(m_thread, &QThread::started, this, &Bot::run);
+    // Когда мы дадим команду на выход из потока (stop()), он пошлет сигнал finished
+    connect(this, &Bot::finished, m_thread, &QThread::quit);
+    // Когда поток реально завершится, он сам себя удалит
+    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
+
+    m_running = true;
+    m_thread->start();  // ЗАПУСКАЕМ ПОТОК
+}
+
+void Bot::run()
+{
+    // Теперь этот метод - это просто бесконечный цикл, который выполняется в потоке
+    qCInfo(logBot) << "Bot loop started in thread" << QThread::currentThreadId();
+
+    try
+    {
+        while (m_running)
+        {
+            // 1. ОБНОВЛЯЕМ ДАННЫЕ ИЗ ИГРЫ
+            SharedData dataFromDll;
+            if (m_sharedMemory.read(dataFromDll))
+            {
+                if (m_gameObjectManager)
+                {
+                    m_gameObjectManager->updateFromSharedMemory(dataFromDll);
+                }
+                if (m_character)
+                {
+                    m_character->updateFromMemory();
+                }
+            }
+
+            // 2. ЗАПУСКАЕМ "МОЗГ"
+            if (m_behaviorTreeRoot && m_btContext)
+            {
+                m_behaviorTreeRoot->tick(*m_btContext);
+            }
+
+            // 3. ПАУЗА (уменьшаем, чтобы бот был отзывчивее)
+            QThread::msleep(150);
+        }
+    }
+    catch (const std::exception& ex)
+    {
+        qCCritical(logBot) << "Exception in run():" << ex.what();
+    }
+
+    qCInfo(logBot) << "Bot loop finished for PID:" << m_processId;
+    // Когда цикл закончится, посылаем сигнал, что мы закончили
+    emit finished();
 }
 
 void Bot::stop()
 {
     if (!m_running) return;
+
+    // Просто выставляем флаг. Цикл в run() увидит это и сам завершится.
+    // Поток остановится штатно.
+    qCInfo(logBot) << "Stop requested. Signalling run() loop to finish.";
     m_running = false;
-    if (m_thread)
-    {
-        m_thread->quit();
-        m_thread->wait();
-        m_thread = nullptr;
-    }
 }
 
 void Bot::provideDebugData()

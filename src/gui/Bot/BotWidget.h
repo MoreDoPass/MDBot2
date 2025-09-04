@@ -2,45 +2,39 @@
 
 #include <QWidget>
 #include <QLoggingCategory>
-#include <QTabWidget>
-#include "gui/Bot/CharacterWidget/CharacterWidget.h"
-#include "gui/Bot/MainWidget/MainWidget.h"
-#include "gui/Bot/DebugWidget/DebugWidget.h"
+#include "core/Bot/Settings/BotSettings.h"  // Подключаем, чтобы знать ModuleType
 
+// Прямые объявления для ускорения компиляции
 class Bot;
+class QTabWidget;
+class MainWidget;
+class SettingsWidget;
+class GatheringWidget;
+class CharacterWidget;
+class DebugWidget;
 
-/**
- * @brief Категория логирования для BotWidget.
- */
 Q_DECLARE_LOGGING_CATEGORY(logBotWidget)
 
-/**
- * @brief Виджет для отображения и управления одним ботом (Bot).
- *
- * Отображает информацию о процессе, персонаже и предоставляет элементы управления ботом.
- */
 class BotWidget : public QWidget
 {
     Q_OBJECT
    public:
-    /**
-     * @brief Конструктор BotWidget.
-     * @param bot Указатель на объект Bot.
-     * @param parent Родительский виджет.
-     */
     explicit BotWidget(Bot* bot, QWidget* parent = nullptr);
     ~BotWidget();
 
-   private:
-    Bot* m_bot;                                    ///< Указатель на объект Bot (не shared_ptr!)
-    MainWidget* m_mainWidget = nullptr;            ///< Виджет для отображения данных основного интерфейса
-    CharacterWidget* m_characterWidget = nullptr;  ///< Виджет для отображения данных персонажа
-    DebugWidget* m_debugWidget = nullptr;
-    QTabWidget* m_tabWidget = nullptr;  ///< Виджет для отображения вкладок
+   private slots:
+    /**
+     * @brief Собирает настройки со всех дочерних виджетов и запускает бота.
+     * @param type Тип модуля, который был выбран в MainWidget.
+     */
+    void onStartRequested(ModuleType type);
 
-    // Пример UI-элементов (можно расширять)
-    // QLabel* m_pidLabel;
-    // QLabel* m_characterNameLabel;
-    // QPushButton* m_startButton;
-    // ...
+   private:
+    Bot* m_bot;
+    MainWidget* m_mainWidget = nullptr;
+    SettingsWidget* m_settingsWidget = nullptr;
+    GatheringWidget* m_gatheringWidget = nullptr;
+    CharacterWidget* m_characterWidget = nullptr;
+    DebugWidget* m_debugWidget = nullptr;
+    QTabWidget* m_tabWidget = nullptr;
 };
