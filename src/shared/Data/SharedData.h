@@ -32,13 +32,22 @@ struct GameObjectInfo
 
 /**
  * @struct PlayerData
- * @brief Данные о персонаже игрока.
+ * @brief Детальная информация о персонаже игрока.
+ * @details Эта структура заполняется в DLL и читается классом Character в основном приложении.
  */
 struct PlayerData
 {
+    // --- Базовые данные ---
+    uint64_t guid = 0;
+    uintptr_t baseAddress = 0;  ///< Указатель на структуру игрока, нужен для телепортации.
+    Vector3 position;
+
+    // --- Основные статы ---
     uint32_t health = 0;
     uint32_t maxHealth = 0;
-    Vector3 position;
+    uint32_t mana = 0;
+    uint32_t maxMana = 0;
+    uint8_t level = 0;
 };
 
 /**

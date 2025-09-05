@@ -18,6 +18,10 @@ add_executable(MDHack
     ${CORE_SRC_DIR}/appcontext.cpp
     ${CORE_SRC_DIR}/locations/locationmanager.cpp # Предполагая, что locationManager здесь
     ${CORE_SRC_DIR}/player/player.cpp             # Предполагая, что player здесь
+
+        # --- ИЗМЕНЕНИЕ №1: Добавляем наши "личные" хуки в сборку ---
+    ${CORE_SRC_DIR}/hooks/CharacterHook.cpp
+    ${CORE_SRC_DIR}/hooks/TargetHook.cpp
 )
 
 # --- Указываем, где искать заголовочные файлы ---
@@ -38,9 +42,8 @@ target_link_libraries(MDHack PRIVATE
     Core_MemoryManager
     Core_ProcessManager
     Core_HookManager
-    Core_Character
     Core_Teleport
-    Core_GameObject
+    Core_Shared
 )
 
 # --- Копирование плагина платформы Qt (qwindowsd.dll) для Debug-сборки ---

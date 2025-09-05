@@ -16,8 +16,8 @@
 #include <QDialog>
 
 #include "core/player/player.h"
-#include "core/Bot/GameObjectManager/Structures/GameObject.h"
-#include "core/Utils/Vector.h"
+#include "shared/Structures/GameObject.h"
+#include "shared/Utils/Vector.h"
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
 {

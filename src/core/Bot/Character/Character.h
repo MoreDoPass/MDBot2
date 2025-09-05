@@ -3,72 +3,48 @@
 #include <QObject>
 #include <QLoggingCategory>
 #include <QString>
-#include "core/MemoryManager/MemoryManager.h"
-#include "CharacterHook.h"
+#include "shared/Data/SharedData.h"  // <-- Подключаем "контракт" для PlayerData
 #include "shared/Utils/Vector.h"
 
 /**
- * @brief Категория логирования для Character.
+ * @brief Категория логирования для класса Character.
  */
 Q_DECLARE_LOGGING_CATEGORY(characterLog)
 
 /**
- * @brief Смещения полей в структуре персонажа в памяти WoW.
+ * @brief Для ясности кода, определяем, что "данные персонажа" в этом классе
+ *        - это структура PlayerData из общей библиотеки.
  */
-struct CharacterOffsets
-{
-    size_t level = 0x1A30;      ///< Смещение уровня
-    size_t health = 0x19B8;     ///< Смещение текущего HP
-    size_t maxHealth = 0x19D8;  ///< Смещение максимального HP
-    size_t mana = 0x19BC;       ///< Смещение текущей маны
-    size_t maxMana = 0x19DC;    ///< Смещение максимальной маны
-    size_t posX = 0x798;        ///< Смещение X координаты
-    size_t posY = 0x79C;        ///< Смещение Y координаты
-    size_t posZ = 0x7A0;        ///< Смещение Z координаты
-    // Добавь другие смещения по необходимости
-};
+using CharacterData = PlayerData;
 
 /**
- * @brief Смещения для глобальных данных относительно базы модуля игры.
- */
-struct GlobalOffsets
-{
-    const uintptr_t mapId = 0x7D088C;  ///< Статический адрес ID карты
-};
-
-/**
- * @brief Структура для хранения актуальных данных персонажа.
- */
-struct CharacterData
-{
-    uint8_t level = 0;
-    uint32_t health = 0;
-    uint32_t maxHealth = 0;
-    uint32_t mana = 0;
-    uint32_t maxMana = 0;
-    float posX = 0.0f;
-    float posY = 0.0f;
-    float posZ = 0.0f;
-    uint32_t mapId = 0;  // Добавляем ID карты
-    QString name;
-    bool inCombat = false;
-    // Добавь другие поля по необходимости
-};
-
-/**
- * @brief Класс для работы с данными персонажа в памяти WoW.
+ * @brief Класс для работы с данными персонажа в MDBot2.
+ * @details Теперь это простой класс-хранилище. Он не читает память игры напрямую,
+ *          а получает все данные извне (от класса Bot) через метод updateFromSharedMemory.
+ *          Он является QObject'ом для отправки сигналов об изменении данных в GUI.
  */
 class Character : public QObject
 {
     Q_OBJECT
    public:
-    explicit Character(MemoryManager* memoryManager, QObject* parent = nullptr);
+    /**
+     * @brief Упрощенный конструктор.
+     * @param parent Родительский QObject.
+     */
+    explicit Character(QObject* parent = nullptr);
+
+    /**
+     * @brief Деструктор.
+     */
     ~Character();
 
-    void setBaseAddress(uintptr_t address);
-    bool updateFromMemory();
+    /**
+     * @brief Обновляет внутренние данные на основе свежих данных из общей памяти.
+     * @param data Структура PlayerData, прочитанная из Shared Memory.
+     */
+    void updateFromSharedMemory(const PlayerData& data);
 
-    // --- Новые унифицированные геттеры ---
+    // --- Геттеры для доступа к данным ---
 
     /**
      * @brief Получить текущую позицию персонажа.
@@ -77,55 +53,62 @@ class Character : public QObject
     Vector3 GetPosition() const;
 
     /**
-     * @brief Получить ID текущей карты.
-     * @return uint32_t - ID карты.
+     * @brief Получить базовый адрес структуры персонажа в памяти игры.
+     * @details Этот адрес нужен, например, для работы системы телепортации.
+     * @return Адрес в памяти или 0, если он еще не получен от DLL.
      */
-    uint32_t GetMapId() const;
+    uintptr_t getBaseAddress() const;
 
-    // --- Старые геттеры (могут быть полезны для UI) ---
-    uint32_t getLevel() const
-    {
-        return m_data.level;
-    }
-    uint32_t getHealth() const
-    {
-        return m_data.health;
-    }
-    uint32_t getMaxHealth() const
-    {
-        return m_data.maxHealth;
-    }
-    uint32_t getMana() const
-    {
-        return m_data.mana;
-    }
-    uint32_t getMaxMana() const
-    {
-        return m_data.maxMana;
-    }
-    bool isInCombat() const
-    {
-        return m_data.inCombat;
-    }
-    QString getName() const
-    {
-        return m_data.name;
-    }
+    /**
+     * @brief Получить GUID персонажа.
+     * @return 64-битный GUID.
+     */
+    uint64_t getGuid() const;
 
-    const CharacterData& data() const
-    {
-        return m_data;
-    }
+    /**
+     * @brief Получить уровень персонажа.
+     * @return Уровень.
+     */
+    uint32_t getLevel() const;
+
+    /**
+     * @brief Получить текущее здоровье персонажа.
+     * @return Текущее здоровье.
+     */
+    uint32_t getHealth() const;
+
+    /**
+     * @brief Получить максимальное здоровье персонажа.
+     * @return Максимальное здоровье.
+     */
+    uint32_t getMaxHealth() const;
+
+    /**
+     * @brief Получить текущую ману/энергию/ярость персонажа.
+     * @return Текущая мана.
+     */
+    uint32_t getMana() const;
+
+    /**
+     * @brief Получить максимальную ману/энергию/ярость персонажа.
+     * @return Максимальная мана.
+     */
+    uint32_t getMaxMana() const;
+
+    /**
+     * @brief Получить все данные персонажа одной структурой.
+     * @return Константная ссылка на внутреннюю структуру данных.
+     */
+    const CharacterData& data() const;
 
    signals:
+    /**
+     * @brief Сигнал испускается, когда данные персонажа изменяются.
+     * @param data Новые данные персонажа.
+     */
     void dataChanged(const CharacterData& data);
 
    private:
-    MemoryManager* m_memoryManager;
-    uintptr_t m_baseAddress = 0;
-    CharacterOffsets m_offsets;
-    GlobalOffsets m_globalOffsets;  // Добавляем экземпляр структуры
+    /// @brief Внутренний кэш данных персонажа. Является копией PlayerData из Shared Memory.
     CharacterData m_data;
-    CharacterHook* m_hook = nullptr;   ///< Хук для получения указателя на структуру персонажа
-    void* m_savePtrAddress = nullptr;  ///< Адрес в run.exe для хранения указателя (void*, а не uintptr_t)
 };

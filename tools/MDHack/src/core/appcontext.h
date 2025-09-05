@@ -3,112 +3,63 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <QString>  // <-- ДОБАВЛЕНО
+#include <QString>
 #include "core/player/player.h"
 
-// --- Подключаем компоненты из ядра MDBot2 ---
+// --- Подключаем общие компоненты из ядра MDBot2 (с правильными путями) ---
 #include "core/MemoryManager/MemoryManager.h"
 #include "core/HookManager/HookManager.h"
 #include "core/Bot/Movement/Teleport/TeleportExecutor.h"
-#include "core/Bot/Character/CharacterHook.h"
 #include "core/Bot/Movement/Teleport/TeleportStepFlagHook.h"
-#include "core/Bot/GameObjectManager/GameObjectManager.h"
 
-// Прямое объявление, чтобы не включать полный заголовок
+// --- Подключаем наши "личные" хуки из локальной папки ---
+#include "core/hooks/CharacterHook.h"
+#include "core/hooks/TargetHook.h"
+
+// Прямые объявления
 class GetComputerNameHook;
+class GameObject;  // Вместо #include "core/Bot/GameObjectManager/Structures/GameObject.h"
 
 /**
  * @class AppContext
  * @brief Основной класс-контекст для приложения MDHack.
- * @details Инкапсулирует всю логику взаимодействия с целевым процессом игры:
- * управляет менеджерами памяти и хуков, создает и устанавливает необходимые хуки
- * для получения данных и выполнения телепортации. Использует core-библиотеки из MDBot2.
  */
 class AppContext
 {
    public:
-    /**
-     * @brief Конструктор.
-     */
     AppContext();
-
-    /**
-     * @brief Деструктор. Автоматически отключается от процесса.
-     */
     ~AppContext();
 
-    /**
-     * @brief Подключиться к процессу по его PID.
-     * @details Создает и инициализирует все необходимые менеджеры и хуки.
-     * @param pid Идентификатор процесса WoW.
-     * @param processName Имя процесса (например, L"run.exe").
-     * @param computerNameToSet Имя компьютера для подмены. Если пустое, хук не ставится.
-     * @return true в случае успеха, иначе false.
-     */
     bool attachToProcess(uint32_t pid, const std::wstring& processName, const QString& computerNameToSet);
-
-    /**
-     * @brief Отключиться от процесса.
-     * @details Освобождает все ресурсы и закрывает хендл процесса.
-     */
     void detach();
-
-    /**
-     * @brief Проверить, активно ли подключение к процессу.
-     * @return true, если подключение активно.
-     */
     bool isAttached() const;
-
-    /**
-     * @brief Получить PID подключенного процесса.
-     * @return PID процесса или 0, если не подключен.
-     */
     uint32_t getPid() const;
-
-    /**
-     * @brief Получить экземпляр исполнителя телепортации.
-     * @return Указатель на TeleportExecutor или nullptr.
-     */
     TeleportExecutor* getTeleportExecutor() const;
-
-    /**
-     * @brief Получить объект Player для чтения/записи координат.
-     * @details Сначала получает актуальный указатель на структуру игрока,
-     * а затем создает на его основе объект-обертку Player.
-     * @return std::optional<Player>, который может быть пустым, если указатель еще не получен.
-     */
     std::optional<Player> getPlayer();
-
-    /**
-     * @brief Получить адрес буфера, куда хук записывает флаг шага телепортации.
-     * @return Адрес буфера.
-     */
+    GameObject* getTargetObject();
     uintptr_t getTeleportFlagBufferAddress() const;
-
-    void updateGameObjectManager();
     MemoryManager* getMemoryManager() const
     {
         return m_memoryManager.get();
     }
-    GameObject* getTargetObject();
 
    private:
-    /// @brief Указатель на менеджер памяти из MDBot2.
+    // --- Основные менеджеры из MDBot2 ---
     std::unique_ptr<MemoryManager> m_memoryManager;
-    /// @brief Указатель на менеджер хуков из MDBot2.
     std::unique_ptr<HookManager> m_hookManager;
-    /// @brief Указатель на исполнителя телепортации из MDBot2.
     std::unique_ptr<TeleportExecutor> m_teleportExecutor;
-    /// @brief Указатель на менеджер игровых обьектов
-    std::unique_ptr<GameObjectManager> m_gameObjectManager;
 
-    /// @brief Умный указатель на хук для подмены имени компьютера.
+    // --- "Личные" хуки MDHack ---
     std::unique_ptr<GetComputerNameHook> m_computerNameHook;
+    std::unique_ptr<CharacterHook> m_characterHook;
+    std::unique_ptr<TargetHook> m_targetHook;
+    std::unique_ptr<TeleportStepFlagHook> m_teleportHook;
+
+    // --- Буферы в памяти игры для хранения указателей ---
+    void* m_playerPtrBuffer = nullptr;
+    void* m_targetPtrBuffer = nullptr;
+    void* m_teleportFlagBuffer = nullptr;
 
     /// @brief PID подключенного процесса.
     uint32_t m_pid = 0;
-    /// @brief Адрес в памяти игры, куда CharacterHook сохраняет указатель на структуру игрока.
-    void* m_playerPtrBuffer = nullptr;
-    /// @brief Адрес в памяти игры, куда TeleportStepFlagHook сохраняет флаг '1'.
-    void* m_teleportFlagBuffer = nullptr;
 };

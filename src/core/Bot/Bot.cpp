@@ -59,7 +59,7 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
                     "Failed to inject DLL. Ensure the file exists and MDBot2 is run as an administrator.");
             }
 
-            m_character = new Character(&m_memoryManager, this);
+            m_character = new Character(this);
             m_gameObjectManager = new GameObjectManager(this);
             m_movementManager = new MovementManager(&m_sharedMemory, m_character, this);
 
@@ -207,7 +207,7 @@ void Bot::tick()
             }
             if (m_character)
             {
-                m_character->updateFromMemory();
+                m_character->updateFromSharedMemory(dataFromDll.player);
             }
         }
 

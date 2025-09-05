@@ -1,162 +1,129 @@
 #include "Character.h"
 #include <QLoggingCategory>
-#include <cstring>
+#include <cstring>  // для memcmp
 
 Q_LOGGING_CATEGORY(characterLog, "mdbot.character")
 
-Character::Character(MemoryManager* memoryManager, QObject* parent) : QObject(parent), m_memoryManager(memoryManager)
+/**
+ * @brief Конструктор.
+ * @details Логика по установке хуков и выделению памяти полностью удалена.
+ *          Класс создается в "чистом" виде.
+ */
+Character::Character(QObject* parent) : QObject(parent)
 {
-    try
-    {
-        // Выделяем память в run.exe для хранения указателя на структуру персонажа
-        m_savePtrAddress = m_memoryManager->allocMemory(sizeof(uintptr_t));
-        if (!m_savePtrAddress)
-        {
-            qCCritical(characterLog) << "Не удалось выделить память для хранения указателя на структуру персонажа!";
-            return;
-        }
-        qCInfo(characterLog) << "Выделена память для указателя на структуру персонажа по адресу:" << Qt::hex
-                             << m_savePtrAddress;
-
-        // Создаём и устанавливаем CharacterHook
-        m_hook = new CharacterHook(0x4FA64E, m_memoryManager, reinterpret_cast<uintptr_t>(m_savePtrAddress));
-        if (!m_hook->install())
-        {
-            qCCritical(characterLog) << "Не удалось установить CharacterHook!";
-            delete m_hook;
-            m_hook = nullptr;
-        }
-        else
-        {
-            qCInfo(characterLog) << "CharacterHook успешно установлен на функцию 0x4FA64E";
-        }
-    }
-    catch (const std::exception& ex)
-    {
-        qCCritical(characterLog) << "Ошибка при создании Character:" << ex.what();
-    }
+    // Инициализируем m_data нулями, чтобы избежать мусора при первом сравнении.
+    memset(&m_data, 0, sizeof(CharacterData));
+    qCInfo(characterLog) << "Character object created (Shared Memory mode).";
 }
 
+/**
+ * @brief Деструктор.
+ * @details Логика по снятию хуков и освобождению памяти полностью удалена.
+ */
 Character::~Character()
 {
-    try
-    {
-        if (m_hook)
-        {
-            m_hook->uninstall();
-            delete m_hook;
-            m_hook = nullptr;
-            qCInfo(characterLog) << "CharacterHook снят и удалён";
-        }
-        if (m_savePtrAddress)
-        {
-            m_memoryManager->freeMemory(m_savePtrAddress);
-            qCInfo(characterLog) << "Освобождена память для указателя на структуру персонажа по адресу:" << Qt::hex
-                                 << m_savePtrAddress;
-            m_savePtrAddress = nullptr;
-        }
-    }
-    catch (const std::exception& ex)
-    {
-        qCCritical(characterLog) << "Ошибка при уничтожении Character:" << ex.what();
-    }
+    qCInfo(characterLog) << "Character object destroyed.";
 }
 
-void Character::setBaseAddress(uintptr_t address)
+/**
+ * @brief Обновляет внутреннее состояние персонажа на основе данных, полученных от DLL.
+ * @details Перед обновлением и отправкой сигнала, метод сравнивает новые данные
+ *          со старыми, чтобы избежать лишней работы и спама сигналами/логами.
+ * @param newData Структура PlayerData, прочитанная из общей памяти.
+ */
+void Character::updateFromSharedMemory(const PlayerData& newData)
 {
-    if (m_baseAddress == address || !address) return;
-    m_baseAddress = address;
-    qCInfo(characterLog) << "Установлен новый базовый адрес структуры персонажа:" << Qt::hex << address;
-    updateFromMemory();
-}
-
-bool Character::updateFromMemory()
-{
-    if (!m_memoryManager)
+    // Сравниваем старые и новые данные, чтобы не испускать сигнал без надобности.
+    // memcmp - очень быстрая операция для сравнения блоков памяти.
+    if (memcmp(&m_data, &newData, sizeof(CharacterData)) != 0)
     {
-        qCCritical(characterLog) << "MemoryManager не инициализирован!";
-        return false;
-    }
-    if (!m_savePtrAddress)
-    {
-        qCCritical(characterLog) << "Не выделена память для указателя на структуру персонажа!";
-        return false;
-    }
-    // Читаем указатель на структуру персонажа из выделенной памяти
-    uintptr_t newBase = 0;
-    if (!m_memoryManager->readMemory(reinterpret_cast<uintptr_t>(m_savePtrAddress), newBase))
-    {
-        qCWarning(characterLog) << "Не удалось прочитать указатель на структуру персонажа из памяти!";
-        return false;
-    }
-    if (newBase && newBase != m_baseAddress)
-    {
-        setBaseAddress(newBase);
-    }
+        m_data = newData;  // Копируем новые данные
+        emit dataChanged(m_data);
 
-    try
-    {
-        CharacterData newData = m_data;
-        bool ok = true;
-        bool hasDataChanged = false;
-
-        // Чтение данных из структуры персонажа
-        if (m_baseAddress)
-        {
-            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.level, newData.level);
-            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.health, newData.health);
-            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.maxHealth, newData.maxHealth);
-            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.mana, newData.mana);
-            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.maxMana, newData.maxMana);
-            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posX, newData.posX);
-            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posY, newData.posY);
-            ok &= m_memoryManager->readMemory(m_baseAddress + m_offsets.posZ, newData.posZ);
-        }
-        else
-        {
-            qCWarning(characterLog) << "Базовый адрес структуры персонажа не получен, часть данных не будет обновлена.";
-        }
-
-        // Чтение глобальных данных
-        uintptr_t moduleBase = m_memoryManager->getMainModuleBaseAddress();
-        if (moduleBase)
-        {
-            ok &= m_memoryManager->readMemory(moduleBase + m_globalOffsets.mapId, newData.mapId);
-        }
-        else
-        {
-            qCWarning(characterLog) << "Не удалось получить базовый адрес главного модуля, MapID не будет обновлен.";
-            ok = false;
-        }
-
-        if (!ok)
-        {
-            qCWarning(characterLog) << "Не все данные персонажа удалось прочитать из памяти!";
-        }
-
-        if (memcmp(&m_data, &newData, sizeof(CharacterData)) != 0)
-        {
-            m_data = newData;
-            emit dataChanged(m_data);
-            qCDebug(characterLog) << "Данные персонажа обновлены: Level:" << m_data.level << "HP:" << m_data.health
-                                  << "/" << m_data.maxHealth << "Pos:" << m_data.posX << m_data.posY << m_data.posZ
-                                  << "MapID:" << m_data.mapId;
-        }
-        return ok;
-    }
-    catch (const std::exception& e)
-    {
-        qCCritical(characterLog) << "Исключение при обновлении данных персонажа:" << e.what();
-        return false;
+        // Логируем только при изменении, чтобы не спамить в консоль.
+        qCDebug(characterLog) << "Player data updated: HP:" << m_data.health << "/" << m_data.maxHealth
+                              << "Pos:" << m_data.position.x << m_data.position.y << m_data.position.z
+                              << "GUID:" << Qt::hex << m_data.guid;
     }
 }
 
+/**
+ * @brief Получить текущую позицию персонажа.
+ * @return Vector3 - Координаты (X, Y, Z).
+ */
 Vector3 Character::GetPosition() const
 {
-    return Vector3(m_data.posX, m_data.posY, m_data.posZ);
+    return m_data.position;
 }
 
-uint32_t Character::GetMapId() const
+/**
+ * @brief Получить базовый адрес структуры персонажа в памяти игры.
+ * @return Адрес в памяти или 0.
+ */
+uintptr_t Character::getBaseAddress() const
 {
-    return m_data.mapId;
+    return m_data.baseAddress;
+}
+
+/**
+ * @brief Получить GUID персонажа.
+ * @return 64-битный GUID.
+ */
+uint64_t Character::getGuid() const
+{
+    return m_data.guid;
+}
+
+/**
+ * @brief Получить уровень персонажа.
+ * @return Уровень.
+ */
+uint32_t Character::getLevel() const
+{
+    return m_data.level;
+}
+
+/**
+ * @brief Получить текущее здоровье персонажа.
+ * @return Текущее здоровье.
+ */
+uint32_t Character::getHealth() const
+{
+    return m_data.health;
+}
+
+/**
+ * @brief Получить максимальное здоровье персонажа.
+ * @return Максимальное здоровье.
+ */
+uint32_t Character::getMaxHealth() const
+{
+    return m_data.maxHealth;
+}
+
+/**
+ * @brief Получить текущую ману/энергию/ярость персонажа.
+ * @return Текущая мана.
+ */
+uint32_t Character::getMana() const
+{
+    return m_data.mana;
+}
+
+/**
+ * @brief Получить максимальную ману/энергию/ярость персонажа.
+ * @return Максимальная мана.
+ */
+uint32_t Character::getMaxMana() const
+{
+    return m_data.maxMana;
+}
+
+/**
+ * @brief Получить все данные персонажа одной структурой.
+ * @return Константная ссылка на внутреннюю структуру данных.
+ */
+const CharacterData& Character::data() const
+{
+    return m_data;
 }

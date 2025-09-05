@@ -1,6 +1,7 @@
 #include "appcontext.h"
 #include <QLoggingCategory>
 #include "core/Bot/Hooks/GetComputerNameHook.h"
+#include "shared/Structures/GameObject.h"
 
 // Создаем локальную категорию логирования для AppContext
 Q_LOGGING_CATEGORY(logAppContext, "mdhack.appcontext")
@@ -17,38 +18,34 @@ AppContext::~AppContext()
  */
 bool AppContext::attachToProcess(uint32_t pid, const std::wstring& processName, const QString& computerNameToSet)
 {
-    // Если уже были подключены, сначала отключаемся
     detach();
 
     try
     {
-        // 1. Создаем и инициализируем MemoryManager
         m_memoryManager = std::make_unique<MemoryManager>();
         if (!m_memoryManager->openProcess(pid, processName))
         {
             qCCritical(logAppContext) << "Failed to open process with PID:" << pid;
-            detach();  // Очищаем все
+            detach();
             return false;
         }
         m_pid = pid;
         qCInfo(logAppContext) << "Successfully attached to process" << pid;
 
-        // 2. УСТАНОВКА ХУКА НА ИМЯ КОМПЬЮТЕРА (если оно указано)
         if (!computerNameToSet.isEmpty())
         {
-            qCInfo(logAppContext) << "Attempting to set computer name via hook to:" << computerNameToSet;
             try
             {
                 m_computerNameHook =
                     std::make_unique<GetComputerNameHook>(m_memoryManager.get(), computerNameToSet.toStdString());
-                if (m_computerNameHook->install())
+                if (!m_computerNameHook->install())
                 {
-                    qCInfo(logAppContext) << "GetComputerNameHook installed successfully.";
+                    qCCritical(logAppContext) << "Failed to install GetComputerNameHook.";
+                    m_computerNameHook.reset();
                 }
                 else
                 {
-                    qCCritical(logAppContext) << "Failed to install GetComputerNameHook.";
-                    m_computerNameHook.reset();  // Очищаем, если установка не удалась
+                    qCInfo(logAppContext) << "GetComputerNameHook installed successfully.";
                 }
             }
             catch (const std::exception& ex)
@@ -56,43 +53,46 @@ bool AppContext::attachToProcess(uint32_t pid, const std::wstring& processName, 
                 qCCritical(logAppContext) << "Failed to create GetComputerNameHook:" << ex.what();
             }
         }
-        else
-        {
-            qCInfo(logAppContext) << "No computer name provided, skipping hook installation.";
-        }
 
-        // 3. Создаем остальные менеджеры и хуки
-        m_gameObjectManager = std::make_unique<GameObjectManager>(m_memoryManager.get());
         m_hookManager = std::make_unique<HookManager>(m_memoryManager.get());
+
         m_playerPtrBuffer = m_memoryManager->allocMemory(sizeof(uintptr_t));
+        m_targetPtrBuffer = m_memoryManager->allocMemory(sizeof(uintptr_t));
         m_teleportFlagBuffer = m_memoryManager->allocMemory(sizeof(uint8_t));
 
-        if (!m_playerPtrBuffer || !m_teleportFlagBuffer)
+        if (!m_playerPtrBuffer || !m_teleportFlagBuffer || !m_targetPtrBuffer)
         {
             qCCritical(logAppContext) << "Failed to allocate memory in target process.";
             detach();
             return false;
         }
 
-        qCInfo(logAppContext) << "Allocated memory: PlayerPtr at" << Qt::hex
-                              << reinterpret_cast<uintptr_t>(m_playerPtrBuffer);
-        qCInfo(logAppContext) << "Allocated memory: TeleportFlag at" << Qt::hex
-                              << reinterpret_cast<uintptr_t>(m_teleportFlagBuffer);
+        qCInfo(logAppContext) << "Allocated memory: PlayerPtr at" << Qt::hex << m_playerPtrBuffer;
+        qCInfo(logAppContext) << "Allocated memory: TargetPtr at" << Qt::hex << m_targetPtrBuffer;
+        qCInfo(logAppContext) << "Allocated memory: TeleportFlag at" << Qt::hex << m_teleportFlagBuffer;
 
         const uintptr_t CHARACTER_HOOK_ADDR = 0x4FA64E;
-        auto characterHook = std::make_unique<CharacterHook>(CHARACTER_HOOK_ADDR, m_memoryManager.get(),
-                                                             reinterpret_cast<uintptr_t>(m_playerPtrBuffer));
+        m_characterHook = std::make_unique<CharacterHook>(CHARACTER_HOOK_ADDR, m_memoryManager.get(),
+                                                          reinterpret_cast<uintptr_t>(m_playerPtrBuffer));
+
+        const uintptr_t TARGET_HOOK_ADDR = 0x72A6C5;
+        m_targetHook = std::make_unique<TargetHook>(TARGET_HOOK_ADDR, m_memoryManager.get(),
+                                                    reinterpret_cast<uintptr_t>(m_targetPtrBuffer));
+
         const uintptr_t TELEPORT_HOOK_ADDR = 0x7413F0;
-        auto teleportHook = std::make_unique<TeleportStepFlagHook>(
+        m_teleportHook = std::make_unique<TeleportStepFlagHook>(
             TELEPORT_HOOK_ADDR, reinterpret_cast<uintptr_t>(m_playerPtrBuffer),
             reinterpret_cast<uintptr_t>(m_teleportFlagBuffer), m_memoryManager.get());
 
-        m_hookManager->addHook(characterHook->address(), nullptr);
-        m_hookManager->addHook(teleportHook->address(), nullptr);
-        characterHook->install();
-        teleportHook->install();
-        characterHook.release();
-        teleportHook.release();
+        // ИЗМЕНЕНИЕ: Используем правильные методы install/uninstall из НОВОГО HookManager/InlineHook
+        if (!m_characterHook->install() || !m_targetHook->install() || !m_teleportHook->install())
+        {
+            qCCritical(logAppContext) << "Failed to install one or more hooks.";
+            detach();
+            return false;
+        }
+
+        qCInfo(logAppContext) << "All hooks installed successfully.";
 
         m_teleportExecutor = std::make_unique<TeleportExecutor>(m_memoryManager.get());
 
@@ -113,25 +113,32 @@ void AppContext::detach()
 {
     qCInfo(logAppContext) << "Detaching from process" << m_pid;
 
-    // Снятие хука произойдет автоматически при уничтожении m_computerNameHook,
-    // но для контроля порядка лучше сделать это явно.
+    if (m_computerNameHook) m_computerNameHook->uninstall();
     m_computerNameHook.reset();
 
-    if (m_hookManager)
-    {
-        // m_hookManager->uninstallAll(); // Когда будет реализовано
-    }
+    // ИЗМЕНЕНИЕ: Используем правильный метод uninstall
+    if (m_characterHook) m_characterHook->uninstall();
+    if (m_targetHook) m_targetHook->uninstall();
+    if (m_teleportHook) m_teleportHook->uninstall();
+
+    m_characterHook.reset();
+    m_targetHook.reset();
+    m_teleportHook.reset();
+
     if (m_memoryManager && m_memoryManager->isProcessOpen())
     {
         if (m_playerPtrBuffer) m_memoryManager->freeMemory(m_playerPtrBuffer);
+        if (m_targetPtrBuffer) m_memoryManager->freeMemory(m_targetPtrBuffer);
         if (m_teleportFlagBuffer) m_memoryManager->freeMemory(m_teleportFlagBuffer);
     }
+
     m_teleportExecutor.reset();
-    m_gameObjectManager.reset();  // <-- ДОБАВЛЕНО: очистка GOM
     m_hookManager.reset();
     m_memoryManager.reset();
+
     m_pid = 0;
     m_playerPtrBuffer = nullptr;
+    m_targetPtrBuffer = nullptr;
     m_teleportFlagBuffer = nullptr;
 }
 
@@ -163,7 +170,6 @@ std::optional<Player> AppContext::getPlayer()
     uintptr_t playerAddr = 0;
     if (m_memoryManager->readMemory(reinterpret_cast<uintptr_t>(m_playerPtrBuffer), playerAddr) && playerAddr != 0)
     {
-        // Создаем временный объект Player, который ссылается на наш основной MemoryManager
         return Player(*m_memoryManager.get(), playerAddr);
     }
 
@@ -175,20 +181,18 @@ uintptr_t AppContext::getTeleportFlagBufferAddress() const
     return reinterpret_cast<uintptr_t>(m_teleportFlagBuffer);
 }
 
-void AppContext::updateGameObjectManager()
-{
-    if (m_gameObjectManager)
-    {
-        qCDebug(logAppContext) << "Forcing GameObjectManager update...";
-        m_gameObjectManager->update();
-    }
-}
-
 GameObject* AppContext::getTargetObject()
 {
-    if (m_gameObjectManager)
+    if (!m_memoryManager || !m_targetPtrBuffer)
     {
-        return m_gameObjectManager->getTargetObject();
+        return nullptr;
     }
+
+    uintptr_t targetAddr = 0;
+    if (m_memoryManager->readMemory(reinterpret_cast<uintptr_t>(m_targetPtrBuffer), targetAddr) && targetAddr != 0)
+    {
+        return reinterpret_cast<GameObject*>(targetAddr);
+    }
+
     return nullptr;
 }

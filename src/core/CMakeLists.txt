@@ -11,6 +11,8 @@ set(CORE_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/..)
 # Создаем статическую библиотеку для универсальных компонентов дерева
 add_library(Core_BehaviorTree STATIC
     BehaviorTree/SequenceNode.cpp
+    BehaviorTree/SelectorNode.cpp   # <-- Добавили
+    BehaviorTree/InverterNode.cpp   # <-- Добавили
 )
 target_include_directories(Core_BehaviorTree PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -82,7 +84,6 @@ target_link_libraries(Core_HookManager PUBLIC
 # --- Библиотека Character ---
 add_library(Core_Character STATIC
     Bot/Character/Character.cpp
-    Bot/Character/CharacterHook.cpp
 )
 target_include_directories(Core_Character PUBLIC
     ${CORE_INCLUDE_DIR}
@@ -109,8 +110,6 @@ target_link_libraries(Core_Teleport PUBLIC
 
 add_library(Core_GameObject STATIC
     Bot/GameObjectManager/GameObjectManager.cpp
-    Bot/GameObjectManager/Target/TargetHook.cpp
-    # ... другие cpp-файлы из этой папки, если появятся ...
 )
 target_include_directories(Core_GameObject PUBLIC
     ${CORE_INCLUDE_DIR}

@@ -3,12 +3,14 @@
 #include "Core/Memory/SharedMemoryConnector.h"
 #include "Hooks/VisibleObjectsHook.h"
 #include "Hooks/CtMEnablerHook.h"
+#include "Hooks/CharacterHook.h"
 #include "shared/Data/SharedData.h"
 
 // Глобальный УКАЗАТЕЛЬ на наш хук
 GameLoopHook* g_gameLoopHook = nullptr;
 VisibleObjectsHook* g_visibleObjectsHook = nullptr;
 CtMEnablerHook* g_ctmEnablerHook = nullptr;
+CharacterHook* g_characterHook = nullptr;
 SharedMemoryConnector* g_sharedMemory = nullptr;
 
 /**
@@ -40,17 +42,16 @@ DWORD WINAPI Initialize(LPVOID hModule)
     }
     OutputDebugStringA("MDBot_Client: Shared memory opened successfully.");
 
-    // Создаем и устанавливаем оба хука
+    // --- 3. ПОСЛЕДОВАТЕЛЬНО УСТАНАВЛИВАЕМ ВСЕ ХУКИ ---
+    // Если какой-то хук не установится, нужно откатить все предыдущие.
+    // Используем goto для очистки, это один из редких случаев, где это оправдано.
+
     OutputDebugStringA("MDBot_Client: Installing VisibleObjectsHook (Collector)...");
     g_visibleObjectsHook = new VisibleObjectsHook();
     if (!g_visibleObjectsHook->install())
     {
         OutputDebugStringA("MDBot_Client: ERROR - Failed to install VisibleObjectsHook.");
-        delete g_visibleObjectsHook;
-        g_visibleObjectsHook = nullptr;
-        delete g_sharedMemory;
-        g_sharedMemory = nullptr;
-        return 1;
+        goto cleanup_and_fail;
     }
     OutputDebugStringA("MDBot_Client: VisibleObjectsHook installed successfully.");
 
@@ -59,44 +60,60 @@ DWORD WINAPI Initialize(LPVOID hModule)
     if (!g_gameLoopHook->install())
     {
         OutputDebugStringA("MDBot_Client: ERROR - Failed to install GameLoopHook.");
-        g_visibleObjectsHook->uninstall();  // <-- Не забываем удалить предыдущий хук в случае ошибки
-        delete g_visibleObjectsHook;
-        g_visibleObjectsHook = nullptr;
-        delete g_gameLoopHook;
-        g_gameLoopHook = nullptr;
-        delete g_sharedMemory;
-        g_sharedMemory = nullptr;
-        return 1;
+        goto cleanup_and_fail;
     }
     OutputDebugStringA("MDBot_Client: GameLoopHook installed successfully.");
 
-    // --- УСТАНОВКА НАШЕГО ХУКА С ПОДРОБНЫМ ЛОГИРОВАНИЕМ ---
-    OutputDebugStringA("MDBot_Client: --- Starting CtMEnablerHook installation ---");
+    OutputDebugStringA("MDBot_Client: Installing CharacterHook (Player Ptr)...");
+    g_characterHook = new CharacterHook();
+    if (!g_characterHook->install())
+    {
+        OutputDebugStringA("MDBot_Client: ERROR - Failed to install CharacterHook.");
+        goto cleanup_and_fail;
+    }
+    OutputDebugStringA("MDBot_Client: CharacterHook installed successfully.");
+
+    OutputDebugStringA("MDBot_Client: Installing CtMEnablerHook...");
     g_ctmEnablerHook = new CtMEnablerHook();
     if (!g_ctmEnablerHook->install())
     {
-        // Если install() вернул false, это критично. Мы должны знать почему.
-        char errorMsg[256];
-        sprintf_s(
-            errorMsg,
-            "MDBot_Client: FATAL - Failed to install CtMEnablerHook! GetLastError() = %lu. ClickToMove will NOT work.",
-            GetLastError());
-        OutputDebugStringA(errorMsg);
+        OutputDebugStringA("MDBot_Client: FATAL - Failed to install CtMEnablerHook! ClickToMove will NOT work.");
+        // Не используем goto, так как это не настолько критично, чтобы выгружать всю DLL.
+        // Просто удаляем этот конкретный хук и продолжаем.
         delete g_ctmEnablerHook;
         g_ctmEnablerHook = nullptr;
     }
     else
     {
-        // Если install() вернул true, хук (JMP) успешно записан в память.
-        // Теперь он просто ждет, когда игра вызовет этот код.
-        OutputDebugStringA(
-            "MDBot_Client: CtMEnablerHook installed successfully. It will wait for the game to call the target "
-            "function.");
+        OutputDebugStringA("MDBot_Client: CtMEnablerHook installed successfully.");
     }
-    // --- КОНЕЦ БЛОКА ---
 
     OutputDebugStringA("MDBot_Client: Initialization complete. All systems running.");
     return 0;
+
+cleanup_and_fail:
+    // Блок очистки в случае критической ошибки установки хука
+    if (g_characterHook)
+    {
+        delete g_characterHook;
+        g_characterHook = nullptr;
+    }
+    if (g_gameLoopHook)
+    {
+        delete g_gameLoopHook;
+        g_gameLoopHook = nullptr;
+    }
+    if (g_visibleObjectsHook)
+    {
+        delete g_visibleObjectsHook;
+        g_visibleObjectsHook = nullptr;
+    }
+    if (g_sharedMemory)
+    {
+        delete g_sharedMemory;
+        g_sharedMemory = nullptr;
+    }
+    return 1;
 }
 
 extern "C"
@@ -118,21 +135,23 @@ extern "C"
             case DLL_PROCESS_DETACH:
             {
                 // Выгружаем ресурсы в обратном порядке установки/создания
-                if (g_ctmEnablerHook)  // <-- 4. Добавляем очистку
+                if (g_characterHook)  // <-- 4. ДОБАВЛЯЕМ ОЧИСТКУ
                 {
-                    // uninstall() вызовется в деструкторе, если еще не был вызван
+                    delete g_characterHook;
+                    g_characterHook = nullptr;
+                }
+                if (g_ctmEnablerHook)
+                {
                     delete g_ctmEnablerHook;
                     g_ctmEnablerHook = nullptr;
                 }
                 if (g_gameLoopHook)
                 {
-                    g_gameLoopHook->uninstall();
                     delete g_gameLoopHook;
                     g_gameLoopHook = nullptr;
                 }
                 if (g_visibleObjectsHook)
                 {
-                    g_visibleObjectsHook->uninstall();
                     delete g_visibleObjectsHook;
                     g_visibleObjectsHook = nullptr;
                 }

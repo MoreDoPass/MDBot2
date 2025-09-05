@@ -7,6 +7,7 @@ add_library(MDBot_Client SHARED
     Hooks/GameLoopHook.cpp
     Hooks/VisibleObjectsHook.cpp
     Hooks/CtMEnablerHook.cpp
+    Hooks/CharacterHook.cpp
 )
 
 find_package(capstone REQUIRED)

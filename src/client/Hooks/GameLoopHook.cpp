@@ -24,11 +24,11 @@ enum class CtmActionType : int
     INTERACT_NPC = 5,
     LOOT = 6,
     ATTACK_GUID = 11,
-    // и т.д.
 };
 
 extern SharedMemoryConnector* g_sharedMemory;
 extern VisibleObjectsHook* g_visibleObjectsHook;  // <-- Добавляем доступ к сборщику
+extern volatile uintptr_t g_playerPtr;            // <-- ПОЛУЧАЕМ ДОСТУП К УКАЗАТЕЛЮ ИЗ CharacterHo
 
 // Передаем в конструктор базового класса наш целевой адрес
 GameLoopHook::GameLoopHook() : InlineHook(0x728A27) {}
@@ -65,7 +65,6 @@ void GameLoopHook::handler(const Registers* regs)
         return;
     }
 
-    // Получаем прямой доступ к общей памяти
     SharedData* sharedData = g_sharedMemory->getMemoryPtr();
     if (!sharedData)
     {
@@ -95,7 +94,6 @@ void GameLoopHook::handler(const Registers* regs)
             default:
                 break;
         }
-        // Сбрасываем команду после выполнения
         cmd.type = ClientCommandType::None;
     }
 
@@ -115,12 +113,9 @@ void GameLoopHook::handler(const Registers* regs)
             WorldObject* worldObject = reinterpret_cast<WorldObject*>(objectPtr);
             GameObjectInfo& info = sharedData->visibleObjects[sharedData->visibleObjectCount];
 
-            // --- ЗАПОЛНЕНИЕ ДАННЫХ ---
             info.guid = worldObject->guid;
             info.type = worldObject->objectType;
             info.baseAddress = objectPtr;
-
-            // --- ГЛАВНОЕ ИЗМЕНЕНИЕ: ВЫЧИСЛЯЕМ И ЗАПИСЫВАЕМ ENTRY ID ---
             info.entryId = getEntryIdFromGuid(info.guid, info.type);
 
             switch (info.type)
@@ -156,8 +151,37 @@ void GameLoopHook::handler(const Registers* regs)
         }
     }
 
-    // TODO: Заполнять реальные данные игрока
-    sharedData->player.health = 1234;
-    sharedData->player.maxHealth = 5678;
-    sharedData->player.position = {1.0f, 2.0f, 3.0f};
+    // --- 3. ЗАПОЛНЕНИЕ ДАННЫХ ИГРОКА ---
+    // Используем указатель, который для нас обновляет CharacterHook
+    if (g_playerPtr != 0)
+    {
+        try
+        {
+            // Накладываем нашу структуру Unit на указатель, чтобы прочитать данные.
+            // Player наследуется от Unit, поэтому все эти поля там есть.
+            Unit* playerUnit = reinterpret_cast<Unit*>(g_playerPtr);
+
+            // Копируем данные из памяти игры в нашу общую структуру
+            sharedData->player.baseAddress = g_playerPtr;
+            sharedData->player.guid = playerUnit->guid;
+            sharedData->player.position = playerUnit->position;
+            sharedData->player.health = playerUnit->health;
+            sharedData->player.maxHealth = playerUnit->maxHealth;
+            sharedData->player.mana = playerUnit->mana;
+            sharedData->player.maxMana = playerUnit->maxMana;
+            sharedData->player.level = playerUnit->level;
+        }
+        catch (...)
+        {
+            OutputDebugStringA("MDBot_Client: CRITICAL - Exception caught while reading player data.");
+            // В случае ошибки обнуляем данные, чтобы клиент не использовал мусор.
+            memset(&sharedData->player, 0, sizeof(PlayerData));
+        }
+    }
+    else
+    {
+        // Если указатель еще не получен (например, мы на экране выбора персонажа),
+        // обнуляем данные.
+        memset(&sharedData->player, 0, sizeof(PlayerData));
+    }
 }

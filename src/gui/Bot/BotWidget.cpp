@@ -36,7 +36,7 @@ BotWidget::BotWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot)
 
             if (m_bot->character())
             {
-                m_characterWidget = new CharacterWidget(m_bot->character(), m_bot->movementManager(), this);
+                m_characterWidget = new CharacterWidget(m_bot->character(), this);
                 m_tabWidget->addTab(m_characterWidget, tr("Персонаж"));
             }
             else
