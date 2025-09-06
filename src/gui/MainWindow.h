@@ -5,6 +5,7 @@
 #include <QLoggingCategory>
 #include "gui/ProcessManager/ProcessListDialog.h"
 #include "gui/Logging/LogWindow.h"
+#include "core/ProfileManager/ProfileManager.h"
 
 class MainWindow : public QMainWindow
 {
@@ -19,5 +20,6 @@ class MainWindow : public QMainWindow
 
    private:
     QTabWidget* tabWidget = nullptr;
+    ProfileManager* m_profileManager = nullptr;
     void addProcessTab(const ProcessInfo& info, const QString& computerName);
 };

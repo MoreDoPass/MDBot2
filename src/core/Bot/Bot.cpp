@@ -144,7 +144,7 @@ GameObjectManager* Bot::gameObjectManager() const
     return m_gameObjectManager;
 }
 
-void Bot::start(const BotStartSettings& settings)
+void Bot::start(const BotStartSettings& settings, ProfileManager* profileManager)  // <-- ИЗМЕНЕНО
 {
     if (m_running)
     {
@@ -152,7 +152,6 @@ void Bot::start(const BotStartSettings& settings)
         return;
     }
 
-    // 1. Подготовка
     m_currentSettings = settings;
     qCInfo(logBot) << "Starting bot with module:" << static_cast<int>(m_currentSettings.activeModule);
 
@@ -164,9 +163,13 @@ void Bot::start(const BotStartSettings& settings)
         m_btContext->movementManager = m_movementManager;
     }
 
+    // --- ДОБАВЛЕНО: Делаем ProfileManager доступным для Дерева Поведения ---
+    m_btContext->profileManager = profileManager;
+
     if (m_currentSettings.activeModule == ModuleType::Gathering)
     {
-        m_behaviorTreeRoot = OreGrindModule::build(m_currentSettings);
+        // Передаем в build теперь весь контекст, чтобы он мог получить доступ к настройкам
+        m_behaviorTreeRoot = OreGrindModule::build(*m_btContext);
     }
     else
     {
@@ -184,8 +187,6 @@ void Bot::start(const BotStartSettings& settings)
     qCInfo(logBot) << "Behavior Tree built successfully. Starting tick timer...";
     m_running = true;
 
-    // --- ИСПРАВЛЕНИЕ: Запускаем таймер потокобезопасно ---
-    // Просим поток, в котором живет таймер, выполнить его метод start().
     QMetaObject::invokeMethod(m_tickTimer, "start");
 }
 

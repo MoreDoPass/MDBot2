@@ -6,10 +6,14 @@
 #include "core/Bot/Behaviors/Movement/MoveToTargetAction.h"
 #include "core/Bot/Behaviors/Movement/TeleportToTargetAction.h"      // <-- НОВЫЙ ИНКЛЮД
 #include "core/Bot/Behaviors/Conditions/IsPlayersNearbyCondition.h"  // <-- НОВЫЙ ИНКЛЮД
+#include "core/Bot/Behaviors/Profiles/LoadGatheringProfileAction.h"
 
-static std::unique_ptr<BTNode> createMovementNode(const BotStartSettings& settings)
+#include <vector>
+
+// Теперь эта функция принимает контекст, т.к. ей нужны настройки
+static std::unique_ptr<BTNode> createMovementNode(BTContext& context)
 {
-    const auto& movementSettings = settings.movementSettings;
+    const auto& movementSettings = context.settings.movementSettings;
 
     if (movementSettings.navigationType == MovementSettings::NavigationType::CtM_Only)
     {
@@ -18,31 +22,19 @@ static std::unique_ptr<BTNode> createMovementNode(const BotStartSettings& settin
 
     if (movementSettings.navigationType == MovementSettings::NavigationType::CtM_And_Teleport)
     {
-        // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Создаем вектор и узлы по-старинке ---
-
-        // 1. Создаем пустой вектор для дочерних узлов Selector'а
         std::vector<std::unique_ptr<BTNode>> selectorChildren;
-
-        // 2. Создаем ветку для телепортации (Sequence)
-        {  // Ограничиваем область видимости, чтобы случайно не использовать children отсюда
+        {
             std::vector<std::unique_ptr<BTNode>> children;
             children.push_back(std::make_unique<InverterNode>(std::make_unique<IsPlayersNearbyCondition>()));
             children.push_back(std::make_unique<TeleportToTargetAction>());
-
-            // Добавляем готовую ветку в наш главный вектор. std::move обязателен.
             selectorChildren.push_back(std::make_unique<SequenceNode>(std::move(children)));
         }
-
-        // 3. Добавляем вторую ветку - обычное движение
         selectorChildren.push_back(std::make_unique<MoveToTargetAction>());
-
-        // 4. Создаем Selector, передавая ему готовый и правильно заполненный вектор
         return std::make_unique<SelectorNode>(std::move(selectorChildren));
     }
 
     if (movementSettings.navigationType == MovementSettings::NavigationType::Teleport_Only)
     {
-        // --- ИЗМЕНЕНИЕ ЗДЕСЬ: Та же логика, что и выше ---
         std::vector<std::unique_ptr<BTNode>> children;
         children.push_back(std::make_unique<InverterNode>(std::make_unique<IsPlayersNearbyCondition>()));
         children.push_back(std::make_unique<TeleportToTargetAction>());
@@ -52,24 +44,21 @@ static std::unique_ptr<BTNode> createMovementNode(const BotStartSettings& settin
     return std::make_unique<MoveToTargetAction>();
 }
 
-std::unique_ptr<BTNode> OreGrindModule::build(const BotStartSettings& settings)
+std::unique_ptr<BTNode> OreGrindModule::build(BTContext& context)
 {
     std::vector<std::unique_ptr<BTNode>> children;
 
-    // Шаг 1: Найти ближайший объект из списка ID (без изменений)
-    children.push_back(std::make_unique<FindObjectByIdAction>(settings.gatheringSettings.nodeIdsToGather));
+    // Шаг 0: Загрузить профиль
+    children.push_back(std::make_unique<LoadGatheringProfileAction>());
 
-    // Шаг 2: Двигаться к найденной цели (теперь вызываем нашу умную функцию-конструктор)
-    children.push_back(createMovementNode(settings));
+    // Шаг 1: Найти ближайший объект (теперь ID берутся из контекста, который обновил LoadProfileAction)
+    children.push_back(std::make_unique<FindObjectByIdAction>(context.settings.gatheringSettings.nodeIdsToGather));
 
-    // TODO: Шаг 3: Собрать ресурс (будет добавлен позже)
-    // children.push_back(std::make_unique<GatherNodeAction>());
+    // Шаг 2: Двигаться к найденной цели
+    children.push_back(createMovementNode(context));
 
-    // TODO: Шаг 4 (для режима Teleport_Only): Спуститься под землю
-    // if (settings.movementSettings.navigationType == MovementSettings::NavigationType::Teleport_Only)
-    // {
-    //     children.push_back(std::make_unique<MoveToOffsetAction>(Vector3{0, 0, -100.0f}));
-    // }
+    // TODO: Шаг 3: Собрать ресурс
+    // TODO: Шаг 4: Двигаться по маршруту из профиля (новый узел FollowPathNode)
 
     return std::make_unique<SequenceNode>(std::move(children));
 }

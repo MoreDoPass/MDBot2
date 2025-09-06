@@ -6,6 +6,7 @@
 
 // Прямые объявления для ускорения компиляции
 class Bot;
+class ProfileManager;
 class QTabWidget;
 class MainWidget;
 class SettingsWidget;
@@ -19,7 +20,7 @@ class BotWidget : public QWidget
 {
     Q_OBJECT
    public:
-    explicit BotWidget(Bot* bot, QWidget* parent = nullptr);
+    explicit BotWidget(Bot* bot, ProfileManager* profileManager, QWidget* parent = nullptr);
     ~BotWidget();
 
    private slots:
@@ -31,6 +32,7 @@ class BotWidget : public QWidget
 
    private:
     Bot* m_bot;
+    ProfileManager* m_profileManager = nullptr;
     MainWidget* m_mainWidget = nullptr;
     SettingsWidget* m_settingsWidget = nullptr;
     GatheringWidget* m_gatheringWidget = nullptr;

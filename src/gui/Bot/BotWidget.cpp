@@ -1,5 +1,6 @@
 #include "BotWidget.h"
 #include "core/Bot/Bot.h"
+#include "core/ProfileManager/ProfileManager.h"
 #include "gui/Bot/Modules/Character/CharacterWidget.h"
 #include "gui/Bot/Modules/Main/MainWidget.h"
 #include "gui/Bot/Modules/Debug/DebugWidget.h"
@@ -13,7 +14,8 @@
 
 Q_LOGGING_CATEGORY(logBotWidget, "mdbot.gui.botwidget")
 
-BotWidget::BotWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot)
+BotWidget::BotWidget(Bot* bot, ProfileManager* profileManager, QWidget* parent)  // <-- ИЗМЕНЕНО
+    : QWidget(parent), m_bot(bot), m_profileManager(profileManager)              // <-- ИЗМЕНЕНО
 {
     try
     {
@@ -101,5 +103,5 @@ void BotWidget::onStartRequested(ModuleType type)
     // Здесь можно будет добавить получение настроек из других виджетов (GrindingWidget и т.д.)
 
     // 3. Отправляем боту одну, полностью собранную структуру
-    m_bot->start(settings);
+    m_bot->start(settings, m_profileManager);
 }

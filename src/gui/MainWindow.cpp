@@ -17,6 +17,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent)
     setWindowTitle("MDBot2 Main Window");
     resize(800, 600);
 
+    // создаём ProfileManager
+    m_profileManager = new ProfileManager(this);
+
     // Создаём меню
     QMenuBar* menuBar = new QMenuBar(this);
     QMenu* processMenu = menuBar->addMenu("Процессы");
@@ -93,18 +96,10 @@ void MainWindow::addProcessTab(const ProcessInfo& info, const QString& computerN
         Bot* bot = new Bot(static_cast<qint64>(info.pid), QString::fromStdWString(info.name), computerName);
 
         // 2. Создаём виджет BotWidget для управления этим ботом
-        BotWidget* botWidget = new BotWidget(bot, this);
+        BotWidget* botWidget = new BotWidget(bot, m_profileManager, this);
         // Устанавливаем bot дочерним объектом для botWidget.
         // Когда вкладка (botWidget) закроется, bot будет автоматически удален.
         bot->setParent(botWidget);
-
-        // --- УДАЛЕНА ВСЯ СТАРАЯ ЛОГИКА УПРАВЛЕНИЯ ПОТОКОМ ---
-        // QThread* botThread = new QThread(this);
-        // bot->moveToThread(botThread);
-        // connect(bot, &Bot::finished, botThread, &QThread::quit);
-        // connect(bot, &Bot::finished, bot, &Bot::deleteLater); // <-- ГЛАВНАЯ ОШИБКА УДАЛЕНА
-        // connect(botThread, &QThread::finished, botThread, &QThread::deleteLater);
-        // botThread->start();
 
         // 3. Добавляем вкладку с готовым виджетом
         QString tabName = QString::fromStdWString(info.name) + QString(" [%1]").arg(info.pid);

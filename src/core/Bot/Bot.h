@@ -17,6 +17,7 @@
 #include "core/Bot/Settings/BotSettings.h"
 
 // Прямое объявление, чтобы не включать полный заголовок
+class ProfileManager;
 class GetComputerNameHook;
 class BTNode;
 class BTContext;
@@ -39,7 +40,7 @@ class Bot : public QObject
     GameObjectManager* gameObjectManager() const;
 
    public slots:
-    void start(const BotStartSettings& settings);
+    void start(const BotStartSettings& settings, ProfileManager* profileManager);
     void stop();
     void provideDebugData();
 

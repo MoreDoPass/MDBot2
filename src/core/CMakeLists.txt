@@ -130,3 +130,16 @@ target_include_directories(Core_Database PUBLIC
 target_link_libraries(Core_Database PUBLIC
     Qt6::Core
 )
+
+# --- НОВЫЙ БЛОК: Библиотека ProfileManager ---
+add_library(Core_ProfileManager STATIC
+    ProfileManager/ProfileManager.cpp
+)
+target_include_directories(Core_ProfileManager PUBLIC
+    ${CORE_INCLUDE_DIR}
+)
+# ProfileManager будет использовать Qt для парсинга JSON и логирования.
+# Он не зависит от других наших библиотек.
+target_link_libraries(Core_ProfileManager PUBLIC
+    Qt6::Core
+)
