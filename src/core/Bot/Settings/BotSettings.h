@@ -17,21 +17,36 @@ enum class ModuleType
 };
 
 /**
- * @brief Определяет, какой тип передвижения будет использовать бот.
+ * @brief Настройки, связанные с передвижением бота.
+ * @details Эта структура определяет, КАК и ЧЕМ бот будет передвигаться.
  */
-enum class MovementType
+struct MovementSettings
 {
-    Teleport,     ///< Использовать телепорт (мгновенное перемещение)
-    GroundMount,  ///< Использовать наземного маунта
-    FlyingMount   ///< Использовать летающего маунта
-};
+    /**
+     * @brief Определяет стратегию (правила) навигации бота.
+     * @details Этот enum напрямую управляет логикой выбора действий в Дереве Поведения.
+     */
+    enum class NavigationType
+    {
+        /** @brief Только Click-To-Move. Бот будет использовать обычный бег/маунта. Самый безопасный режим. */
+        CtM_Only,
 
-/**
- * @brief Глобальные настройки, применимые ко всем модулям.
- */
-struct GlobalSettings
-{
-    MovementType movementType = MovementType::Teleport;  ///< Тип передвижения
+        /** @brief Гибридный режим. Бот будет пытаться телепортироваться, если рядом нет игроков. Если есть - будет
+           использовать CtM. */
+        CtM_And_Teleport,
+
+        /** @brief Только Телепорт. Бот будет использовать исключительно телепорт для передвижения. Самый быстрый и
+           рискованный режим. */
+        Teleport_Only
+    };
+
+    /// @brief Какую стратегию навигации использовать. Выбирается в GUI.
+    NavigationType navigationType = NavigationType::CtM_Only;
+
+    // --- Дополнительные флаги, которые можно будет использовать в будущем ---
+    bool useGroundMount = true;          ///< Разрешено ли использовать наземного маунта в режиме CtM.
+    bool useFlyingMount = false;         ///< Разрешено ли использовать летающего маунта.
+    float playerSafetyDistance = 40.0f;  ///< Дистанция, на которой другие игроки считаются "опасными" для телепорта.
 };
 
 /**
@@ -41,8 +56,8 @@ struct GlobalSettings
 struct BotStartSettings
 {
     ModuleType activeModule = ModuleType::None;  ///< Какой модуль запустить
-    GlobalSettings globalSettings;               ///< Глобальные настройки
-    GatheringSettings gatheringSettings;         ///< Настройки для модуля сбора (если он активен)
+    MovementSettings movementSettings;
+    GatheringSettings gatheringSettings;  ///< Настройки для модуля сбора (если он активен)
     // В будущем сюда можно добавить GrindingSettings, QuestingSettings и т.д.
 };
 

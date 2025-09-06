@@ -92,7 +92,7 @@ void BotWidget::onStartRequested(ModuleType type)
 
     if (m_settingsWidget)
     {
-        settings.globalSettings = m_settingsWidget->getSettings();
+        settings.movementSettings = m_settingsWidget->getSettings();
     }
     if (m_gatheringWidget)
     {

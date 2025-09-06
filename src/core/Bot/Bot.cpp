@@ -61,7 +61,7 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
 
             m_character = new Character(this);
             m_gameObjectManager = new GameObjectManager(this);
-            m_movementManager = new MovementManager(&m_sharedMemory, m_character, this);
+            m_movementManager = new MovementManager(&m_sharedMemory, &m_memoryManager, m_character, this);
 
             // --- НОВАЯ ЛОГИКА С ПОТОКОМ И ТАЙМЕРОМ ---
             m_thread = new QThread(this);         // Создаем поток

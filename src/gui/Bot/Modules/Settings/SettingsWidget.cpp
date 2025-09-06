@@ -10,19 +10,19 @@
 SettingsWidget::SettingsWidget(QWidget* parent) : QWidget(parent)
 {
     auto* mainLayout = new QVBoxLayout(this);
-    auto* settingsGroup = new QGroupBox(tr("Глобальные настройки"));
+    auto* settingsGroup = new QGroupBox(tr("Настройки передвижения"));
     auto* formLayout = new QFormLayout();
 
-    m_movementTypeComboBox = new QComboBox(this);
-    // Заполняем список вручную: Текст для пользователя, данные (enum) для нас.
-    // Это просто, надежно и не требует Qt-магии.
-    m_movementTypeComboBox->addItem(tr("Телепортация"), QVariant::fromValue(MovementType::Teleport));
-    m_movementTypeComboBox->addItem(tr("Наземный маунт"), QVariant::fromValue(MovementType::GroundMount));
-    m_movementTypeComboBox->addItem(tr("Летающий маунт (в разработке)"),
-                                    QVariant::fromValue(MovementType::FlyingMount));
-    m_movementTypeComboBox->setItemData(2, false, Qt::ItemIsEnabled);  // Делаем последнюю опцию неактивной
+    m_navigationTypeComboBox = new QComboBox(this);
+    // Заполняем список в точном соответствии с нашим enum'ом NavigationType
+    m_navigationTypeComboBox->addItem(tr("Только бег / маунт (Безопасно)"),
+                                      QVariant::fromValue(MovementSettings::NavigationType::CtM_Only));
+    m_navigationTypeComboBox->addItem(tr("Гибридный (Бег + Телепорт)"),
+                                      QVariant::fromValue(MovementSettings::NavigationType::CtM_And_Teleport));
+    m_navigationTypeComboBox->addItem(tr("Только телепорт (Быстро)"),
+                                      QVariant::fromValue(MovementSettings::NavigationType::Teleport_Only));
 
-    formLayout->addRow(tr("Метод передвижения:"), m_movementTypeComboBox);
+    formLayout->addRow(tr("Стратегия передвижения:"), m_navigationTypeComboBox);
 
     settingsGroup->setLayout(formLayout);
     mainLayout->addWidget(settingsGroup);
@@ -31,10 +31,12 @@ SettingsWidget::SettingsWidget(QWidget* parent) : QWidget(parent)
 }
 
 // --- ИЗМЕНЕНИЕ: Возвращаем правильную структуру ---
-GlobalSettings SettingsWidget::getSettings() const
+MovementSettings SettingsWidget::getSettings() const
 {
-    GlobalSettings settings;
-    // Просто получаем данные типа MovementType из выпадающего списка.
-    settings.movementType = m_movementTypeComboBox->currentData().value<MovementType>();
+    MovementSettings settings;
+    // Просто получаем данные типа NavigationType из выпадающего списка.
+    settings.navigationType = m_navigationTypeComboBox->currentData().value<MovementSettings::NavigationType>();
+    // В будущем здесь можно будет считывать значения из других элементов UI
+    // settings.useGroundMount = m_useMountCheckBox->isChecked();
     return settings;
 }

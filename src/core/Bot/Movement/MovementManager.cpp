@@ -1,27 +1,114 @@
 #include "MovementManager.h"
-#include <QLoggingCategory>
 #include "core/Bot/Character/Character.h"
+#include "core/MemoryManager/MemoryManager.h"
+#include "core/Bot/Movement/Teleport/TeleportExecutor.h"
+#include "core/Bot/Movement/Teleport/TeleportStepFlagHook.h"
+#include <QLoggingCategory>
+#include <optional>  // Для работы с std::optional
 
 Q_LOGGING_CATEGORY(logMovementManager, "mdbot.movementmanager")
+
+// Адреса и смещения для системы телепортации.
+// В идеале их нужно вынести в файл с настройками/офсетами.
+namespace TeleportOffsets
+{
+constexpr uintptr_t HookAddress = 0x7413F0;
+}  // namespace TeleportOffsets
 
 /**
  * @brief Конструктор. Теперь принимает SharedMemoryManager.
  */
-MovementManager::MovementManager(SharedMemoryManager* sharedMemory, Character* character, QObject* parent)
-    : QObject(parent), m_sharedMemory(sharedMemory), m_character(character)
+MovementManager::MovementManager(SharedMemoryManager* sharedMemory, MemoryManager* memoryManager, Character* character,
+                                 QObject* parent)
+    : QObject(parent), m_sharedMemory(sharedMemory), m_memoryManager(memoryManager), m_character(character)
 {
-    if (!m_sharedMemory)
+    if (!m_sharedMemory || !m_memoryManager || !m_character)
     {
-        qFatal("MovementManager created with a null SharedMemoryManager!");
+        qFatal("MovementManager created with a null dependency!");
     }
     qCInfo(logMovementManager) << "MovementManager created.";
+
+    // Создаем исполнителя телепортации
+    m_teleportExecutor = std::make_unique<TeleportExecutor>(m_memoryManager);
+
+    // Инициализируем подсистему телепортации
+    if (!initializeTeleportSystem())
+    {
+        qCCritical(logMovementManager) << "Teleport system initialization failed! Teleportation will be unavailable.";
+    }
 
     connect(&m_pathExecutorTimer, &QTimer::timeout, this, &MovementManager::updatePathExecution);
 }
 
 MovementManager::~MovementManager()
 {
+    // Корректно очищаем ресурсы, выделенные для телепортации
+    shutdownTeleportSystem();
     qCInfo(logMovementManager) << "MovementManager destroyed.";
+}
+
+bool MovementManager::initializeTeleportSystem()
+{
+    if (m_teleportSystemInitialized || !m_memoryManager->isProcessOpen())
+    {
+        qCWarning(logMovementManager) << "Cannot initialize teleport system: already initialized or process not open.";
+        return false;
+    }
+
+    // 1. Выделяем память. Теперь Player Buffer просто пустой.
+    void* allocatedPlayerBuffer = m_memoryManager->allocMemory(sizeof(uintptr_t));
+    void* allocatedFlagBuffer = m_memoryManager->allocMemory(sizeof(uint8_t));
+
+    m_playerStructAddrBuffer = reinterpret_cast<uintptr_t>(allocatedPlayerBuffer);
+    m_flagBuffer = reinterpret_cast<uintptr_t>(allocatedFlagBuffer);
+
+    if (!m_playerStructAddrBuffer || !m_flagBuffer)
+    {
+        qCCritical(logMovementManager) << "Failed to allocate memory for teleport system in target process.";
+        shutdownTeleportSystem();
+        return false;
+    }
+    qCInfo(logMovementManager) << "Allocated memory for teleport: player buffer at" << Qt::hex
+                               << m_playerStructAddrBuffer << ", flag buffer at" << m_flagBuffer;
+
+    // 2. Создаем и устанавливаем хук. Запись адреса теперь будет в teleportTo.
+    m_teleportHook = std::make_unique<TeleportStepFlagHook>(TeleportOffsets::HookAddress, m_playerStructAddrBuffer,
+                                                            m_flagBuffer, m_memoryManager);
+    if (!m_teleportHook->install())
+    {
+        qCCritical(logMovementManager) << "Failed to install TeleportStepFlagHook.";
+        shutdownTeleportSystem();
+        return false;
+    }
+
+    qCInfo(logMovementManager) << "Teleport system initialized successfully.";
+    m_teleportSystemInitialized = true;
+    return true;
+}
+
+void MovementManager::shutdownTeleportSystem()
+{
+    // Сначала удаляем хук (деструктор unique_ptr вызовет деструктор хука, который его снимет)
+    m_teleportHook.reset();
+
+    // Затем освобождаем память, которую мы выделили в процессе игры
+    if (m_memoryManager && m_memoryManager->isProcessOpen())
+    {
+        // ИСПРАВЛЕНО: Используем правильный метод `freeMemory` с правильными аргументами
+        if (m_playerStructAddrBuffer)
+        {
+            m_memoryManager->freeMemory(reinterpret_cast<void*>(m_playerStructAddrBuffer));
+        }
+        if (m_flagBuffer)
+        {
+            m_memoryManager->freeMemory(reinterpret_cast<void*>(m_flagBuffer));
+        }
+    }
+
+    m_playerStructAddrBuffer = 0;
+    m_flagBuffer = 0;
+    m_teleportSystemInitialized = false;
+    qCInfo(logMovementManager) << "Teleport system shut down.";
 }
 
 /**
@@ -60,6 +147,39 @@ bool MovementManager::moveTo(const Vector3& position)
     return true;
 }
 
+bool MovementManager::teleportTo(const Vector3& position)
+{
+    if (!m_teleportSystemInitialized)
+    {
+        qCWarning(logMovementManager) << "Cannot teleport: system is not initialized.";
+        return false;
+    }
+
+    const uintptr_t playerBase = m_character->getBaseAddress();
+    const std::optional<DWORD> optionalPid = m_memoryManager->pid();
+
+    if (playerBase == 0 || !optionalPid.has_value())
+    {
+        qCWarning(logMovementManager) << "Cannot teleport: invalid player address or PID. Player is not in world?";
+        return false;
+    }
+    const DWORD pid = optionalPid.value();
+
+    // --- КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ---
+    // Перед началом телепортации записываем актуальный адрес игрока
+    // в наш буфер, чтобы хук знал, с чем сравнивать.
+    if (!m_memoryManager->writeMemory(m_playerStructAddrBuffer, playerBase))
+    {
+        qCCritical(logMovementManager)
+            << "Failed to write current player base address to remote buffer. Aborting teleport.";
+        return false;
+    }
+
+    qCInfo(logMovementManager) << "Teleporting to (" << position.x << "," << position.y << "," << position.z << ")";
+
+    return m_teleportExecutor->setPositionStepwise(playerBase, pid, m_flagBuffer, position.x, position.y, position.z);
+}
+
 void MovementManager::stop()
 {
     qCInfo(logMovementManager) << "Stop command sent to DLL.";
@@ -88,15 +208,4 @@ void MovementManager::onPathFound(std::vector<Vector3> path)
 void MovementManager::updatePathExecution()
 {
     // TODO: Адаптировать для новой системы
-}
-
-void MovementManager::setSettings(const MovementSettings& settings)
-{
-    m_settings = settings;
-    qCInfo(logMovementManager) << "Movement settings updated.";
-}
-
-MovementSettings MovementManager::settings() const
-{
-    return m_settings;
 }

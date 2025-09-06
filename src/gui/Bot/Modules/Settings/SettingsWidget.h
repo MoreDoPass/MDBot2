@@ -19,8 +19,8 @@ class SettingsWidget : public QWidget
      * @brief Собирает все глобальные настройки из UI в одну структуру.
      * @return Структура GlobalSettings с текущими значениями из виджета.
      */
-    GlobalSettings getSettings() const;
+    MovementSettings getSettings() const;  // <-- ИЗМЕНЕНО ЗДЕСЬ
 
    private:
-    QComboBox* m_movementTypeComboBox;
+    QComboBox* m_navigationTypeComboBox;
 };
