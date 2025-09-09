@@ -1,5 +1,6 @@
 #include "LoadGatheringProfileAction.h"
 #include "core/ProfileManager/ProfileManager.h"  // Нам нужен доступ к менеджеру
+#include "core/Bot/Settings/BotSettings.h"
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(logLoadProfile, "mdbot.bt.action.loadprofile")
@@ -35,9 +36,16 @@ NodeStatus LoadGatheringProfileAction::tick(BTContext& context)
 
     if (context.gatheringProfile)
     {
-        qCInfo(logLoadProfile) << "Profile loaded successfully.";
-        // Важно: После загрузки обновляем ID для поиска, взяв их из профиля!
-        context.settings.gatheringSettings.nodeIdsToGather = context.gatheringProfile->nodeIdsToGather;
+        qCInfo(logLoadProfile) << "Profile" << context.gatheringProfile->profileName << "loaded successfully with"
+                               << context.gatheringProfile->path.size() << "nodes.";
+        // --- УЛУЧШЕНИЕ ---
+        // Если в профиле задан список ID для сбора, используем его.
+        // Если нет - оставляем тот, что пользователь выбрал в GUI.
+        if (!context.gatheringProfile->nodeIdsToGather.empty())
+        {
+            qCInfo(logLoadProfile) << "Overwriting gathering node IDs from profile.";
+            context.settings.gatheringSettings.nodeIdsToGather = context.gatheringProfile->nodeIdsToGather;
+        }
         return NodeStatus::Success;
     }
 

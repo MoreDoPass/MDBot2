@@ -82,7 +82,11 @@ BotWidget::~BotWidget()
 
 void BotWidget::onStartRequested(ModuleType type)
 {
-    if (!m_bot) return;
+    if (!m_bot)
+    {
+        qCCritical(logBotWidget) << "Start requested, but bot object is null!";
+        return;
+    }
 
     qCInfo(logBotWidget) << "Start requested. Gathering settings for module type:" << static_cast<int>(type);
 
@@ -96,9 +100,23 @@ void BotWidget::onStartRequested(ModuleType type)
     {
         settings.movementSettings = m_settingsWidget->getSettings();
     }
+    else
+    {
+        qCWarning(logBotWidget) << "SettingsWidget is null, default movement settings will be used.";
+    }
+
+    // --- ЭТО ИСПРАВЛЕНИЕ ---
+    // Проверяем, существует ли виджет настроек сбора, и если да, получаем из него настройки.
     if (m_gatheringWidget)
     {
         settings.gatheringSettings = m_gatheringWidget->getSettings();
+        // Добавляем ключевой лог, чтобы проверить, что путь дошел до этого места.
+        qCInfo(logBotWidget) << "Gathering settings collected. Profile path is:"
+                             << settings.gatheringSettings.profilePath;
+    }
+    else
+    {
+        qCWarning(logBotWidget) << "GatheringWidget is null, default gathering settings will be used.";
     }
     // Здесь можно будет добавить получение настроек из других виджетов (GrindingWidget и т.д.)
 

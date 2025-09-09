@@ -1,6 +1,7 @@
 #include "FindObjectByIdAction.h"
 #include "Shared/Data/SharedData.h"  // Нужен для GameObjectInfo
 #include <QLoggingCategory>
+#include <QDateTime>  // <-- ДОБАВЛЕНО
 
 Q_LOGGING_CATEGORY(logFindById, "mdbot.bt.action.findbyid")
 
@@ -41,22 +42,39 @@ NodeStatus FindObjectByIdAction::tick(BTContext& context)
     }
 
     // Получаем ВСЕ видимые объекты, чтобы было из чего выбирать
-    auto allObjects = gom->getAllObjects();
+    const auto allObjects = gom->getAllObjects();
     const GameObjectInfo* closestObject = nullptr;
     float minDistanceSq = 999999.0f;
+    const QDateTime currentTime = QDateTime::currentDateTime();  // Получаем текущее время один раз
 
-    Vector3 myPosition = context.character->GetPosition();
+    const Vector3 myPosition = context.character->GetPosition();
 
     for (const GameObjectInfo* objInfo : allObjects)
     {
-        // --- ГЛАВНАЯ ПРОВЕРКА: Это тот ID, который мы ищем? ---
-        // У objInfo есть поле entryId, доступ к которому теперь корректен.
+        // --- ПРОВЕРКА №1: Это тот ID, который мы ищем? ---
         if (m_idsToFind.count(objInfo->entryId))
         {
-            // У objInfo всегда есть position, никаких dynamic_cast не нужно.
-            const Vector3& objPosition = objInfo->position;
+            // --- НОВАЯ ПРОВЕРКА №2: Нет ли этого объекта в черном списке? ---
+            auto it = context.objectBlacklist.find(objInfo->guid);
+            if (it != context.objectBlacklist.end())
+            {
+                // Объект найден в списке. Проверяем, не истекло ли время.
+                if (it->second > currentTime)
+                {
+                    qCDebug(logFindById) << "Object" << Qt::hex << objInfo->guid << "is in blacklist. Skipping.";
+                    continue;  // Переходим к следующему объекту
+                }
+                else
+                {
+                    // Время истекло, удаляем из списка для очистки
+                    qCDebug(logFindById) << "Object" << Qt::hex << objInfo->guid << "removed from blacklist (expired).";
+                    context.objectBlacklist.erase(it);
+                }
+            }
 
-            float distanceSq = myPosition.DistanceSq(objPosition);
+            // --- ПРОВЕРКА №3: Расстояние ---
+            const Vector3& objPosition = objInfo->position;
+            const float distanceSq = myPosition.DistanceSq(objPosition);
             if (distanceSq < minDistanceSq)
             {
                 minDistanceSq = distanceSq;
@@ -73,6 +91,6 @@ NodeStatus FindObjectByIdAction::tick(BTContext& context)
         return NodeStatus::Success;
     }
 
-    qCDebug(logFindById) << "No objects with specified IDs found in visible range.";
+    qCDebug(logFindById) << "No valid (not blacklisted) objects with specified IDs found.";
     return NodeStatus::Failure;
 }

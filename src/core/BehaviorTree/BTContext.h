@@ -7,7 +7,10 @@
 #include "core/Bot/Movement/MovementManager.h"
 #include "core/Bot/Settings/BotSettings.h"       // <-- ДОБАВЛЕНО: нужен для BotStartSettings
 #include "core/Bot/Profiles/GatheringProfile.h"  // <-- ДОБАВЛЕНО: нужен для GatheringProfile
+#include "Shared/Utils/Vector.h"                 // <-- ДОБАВЛЕНО: нужен для Vec3
 #include <memory>                                // <-- ДОБАВЛЕНО: нужен для std::shared_ptr
+#include <map>                                   // <-- ДОБАВЛЕНО
+#include <QDateTime>                             // <-- ДОБАВЛЕНО
 
 class ProfileManager;
 
@@ -37,4 +40,21 @@ class BTContext
 
     // Указатель на загруженный и распарсенный профиль
     std::shared_ptr<GatheringProfile> gatheringProfile;  // <-- ДОБАВЛЕНО
+
+    /// @brief Позиция цели, если целью являются просто координаты (точка на маршруте).
+    Vector3 currentTargetPosition;  // <-- ДОБАВЛЕНО
+
+    /// @brief Индекс текущей точки в маршруте gatheringProfile->path.
+    size_t currentPathIndex = 0;  // <-- ДОБАВЛЕНО
+
+    /// @brief Счетчик тиков, которые нужно подождать на точке маршрута.
+    int waypointWaitCounter = 0;
+
+    /**
+     * @brief Временный черный список для объектов.
+     * @details Ключ - GUID объекта, значение - время, до которого объект следует игнорировать.
+     *          Это нужно, чтобы избежать циклических попыток сбора объекта, если, например,
+     *          рядом постоянно находится другой игрок.
+     */
+    std::map<uint64_t, QDateTime> objectBlacklist;
 };

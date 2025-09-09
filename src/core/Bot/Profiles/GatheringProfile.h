@@ -22,10 +22,13 @@ struct GatheringProfile
     };
 
     // --- Настройки, загружаемые из профиля ---
+    // Эти поля будут заполняться, только если они есть в JSON.
+    // Если нет, будут использованы значения по умолчанию.
+    QString profileName = "Unnamed Profile";                       ///< Имя профиля для отображения.
     StartPointLogic startLogic = StartPointLogic::FromTheNearest;  ///< Логика выбора стартовой точки.
-    QString profileName = "Unnamed";                               ///< Имя профиля для отображения.
+    std::vector<int> nodeIdsToGather;                              ///< Список Entry ID руды/травы (если указан).
 
     // --- Основные данные ---
-    std::vector<int> nodeIdsToGather;  ///< Список Entry ID руды/травы, которую нужно собирать.
-    std::vector<Vector3> path;         ///< Список точек (маршрут), по которому будет двигаться бот.
+    // Это поле будет заполняться всегда из твоего JSON.
+    std::vector<Vector3> path;  ///< Список точек (маршрут), по которому будет двигаться бот.
 };

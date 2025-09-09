@@ -9,6 +9,9 @@
 #include <QPushButton>
 #include <QTreeWidget>  // <-- ЗАМЕНА
 #include <QHeaderView>  // <-- Для красивого отображения
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(logGatheringWidget, "mdbot.gui.gatheringwidget")  // <-- Категория логирования
 
 GatheringWidget::GatheringWidget(QWidget* parent) : QWidget(parent)
 {
@@ -93,6 +96,9 @@ GatheringSettings GatheringWidget::getSettings() const
 {
     GatheringSettings settings;
     settings.profilePath = m_profilePathLineEdit->text();
+    // Добавляем логирование, чтобы видеть, какие настройки мы отдаем
+    qCInfo(logGatheringWidget) << "Providing settings. Profile path:" << settings.profilePath;
+
     std::vector<int> selectedIds;
 
     // --- СОБИРАЕМ ID С ОТМЕЧЕННЫХ ЭЛЕМЕНТОВ ---
@@ -118,6 +124,7 @@ GatheringSettings GatheringWidget::getSettings() const
         }
     }
     settings.nodeIdsToGather = selectedIds;
+    qCInfo(logGatheringWidget) << "Providing node IDs to gather, count:" << selectedIds.size();
     return settings;
 }
 
@@ -169,11 +176,14 @@ void GatheringWidget::onItemChanged(QTreeWidgetItem* item, int column)
 
 void GatheringWidget::onBrowseClicked()
 {
-    // (без изменений)
+    // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    // Меняем фильтр по умолчанию на JSON, чтобы было удобно выбирать профили.
     QString filePath =
-        QFileDialog::getOpenFileName(this, tr("Выбрать файл профиля"), "", tr("XML файлы (*.xml);;Все файлы (*)"));
+        QFileDialog::getOpenFileName(this, tr("Выбрать файл профиля"), "", tr("JSON профили (*.json);;Все файлы (*)"));
     if (!filePath.isEmpty())
     {
         m_profilePathLineEdit->setText(filePath);
+        // Добавляем логирование, чтобы сразу видеть выбранный файл
+        qCInfo(logGatheringWidget) << "User selected profile path:" << filePath;
     }
 }

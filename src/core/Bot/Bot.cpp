@@ -59,6 +59,43 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
                     "Failed to inject DLL. Ensure the file exists and MDBot2 is run as an administrator.");
             }
 
+            // Проверяем, было ли предоставлено имя компьютера для хука.
+            if (!computerNameToSet.isEmpty())
+            {
+                qCInfo(logBot) << "Computer name provided, attempting to install GetComputerNameHook with name:"
+                               << computerNameToSet;
+                try
+                {
+                    // Создаем хук. Его конструктор может выбросить исключение, если что-то пойдет не так.
+                    m_computerNameHook =
+                        std::make_unique<GetComputerNameHook>(&m_memoryManager, computerNameToSet.toStdString());
+
+                    // Устанавливаем хук (патчим JMP в памяти целевого процесса).
+                    if (m_computerNameHook->install())
+                    {
+                        qCInfo(logBot) << "GetComputerNameHook installed successfully.";
+                    }
+                    else
+                    {
+                        qCCritical(logBot) << "Failed to install GetComputerNameHook.";
+                        m_computerNameHook.reset();  // Очищаем, т.к. хук не установился.
+                        // Выбрасываем исключение, чтобы прервать создание бота, т.к. это критическая ошибка.
+                        throw std::runtime_error("Failed to install GetComputerNameHook.");
+                    }
+                }
+                catch (const std::exception& ex)
+                {
+                    // Ловим исключения как от конструктора, так и от нашего throw выше.
+                    qCCritical(logBot) << "Failed to create or install GetComputerNameHook:" << ex.what();
+                    // Перебрасываем исключение, чтобы конструктор Bot завершился с ошибкой.
+                    throw;
+                }
+            }
+            else
+            {
+                qCInfo(logBot) << "No computer name provided, skipping GetComputerNameHook installation.";
+            }
+
             m_character = new Character(this);
             m_gameObjectManager = new GameObjectManager(this);
             m_movementManager = new MovementManager(&m_sharedMemory, &m_memoryManager, m_character, this);
@@ -165,6 +202,7 @@ void Bot::start(const BotStartSettings& settings, ProfileManager* profileManager
 
     // --- ДОБАВЛЕНО: Делаем ProfileManager доступным для Дерева Поведения ---
     m_btContext->profileManager = profileManager;
+    m_btContext->settings = m_currentSettings;
 
     if (m_currentSettings.activeModule == ModuleType::Gathering)
     {

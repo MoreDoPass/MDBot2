@@ -7,43 +7,64 @@ Q_LOGGING_CATEGORY(logTeleportToAction, "mdbot.bt.action.teleportto")
 
 NodeStatus TeleportToTargetAction::tick(BTContext& context)
 {
-    if (context.currentTargetGuid == 0)
-    {
-        qCWarning(logTeleportToAction) << "TeleportToTargetAction failed: currentTargetGuid is 0.";
-        return NodeStatus::Failure;
-    }
-
     auto gom = context.gameObjectManager;
     auto movementManager = context.movementManager;
-    if (!gom || !movementManager)
+    auto character = context.character;
+
+    if (!gom || !movementManager || !character)
     {
-        qCCritical(logTeleportToAction) << "Manager is null in BTContext!";
+        qCCritical(logTeleportToAction) << "A required manager is null in BTContext!";
         return NodeStatus::Failure;
     }
 
-    const GameObjectInfo* targetObject = gom->getObjectByGuid(context.currentTargetGuid);
-    if (!targetObject)
+    Vector3 targetPosition;
+    bool hasTarget = false;
+
+    // --- Сначала ищем цель по GUID ---
+    if (context.currentTargetGuid != 0)
     {
-        qCWarning(logTeleportToAction) << "TeleportToTargetAction failed: Can't find object with GUID:" << Qt::hex
-                                       << context.currentTargetGuid;
-        context.currentTargetGuid = 0;  // Сбрасываем GUID, т.к. цель больше не валидна
+        const GameObjectInfo* targetObject = gom->getObjectByGuid(context.currentTargetGuid);
+        if (targetObject)
+        {
+            targetPosition = targetObject->position;
+            hasTarget = true;
+            qCDebug(logTeleportToAction) << "Target found by GUID:" << Qt::hex << context.currentTargetGuid;
+        }
+        else
+        {
+            qCWarning(logTeleportToAction)
+                << "Target with GUID" << Qt::hex << context.currentTargetGuid << "is no longer visible. Failing.";
+            context.currentTargetGuid = 0;
+            return NodeStatus::Failure;
+        }
+    }
+    // --- ИЗМЕНЕНИЕ 1: Проверяем, что вектор не нулевой, по-другому ---
+    else if (context.currentTargetPosition.x != 0 || context.currentTargetPosition.y != 0 ||
+             context.currentTargetPosition.z != 0)
+    {
+        targetPosition = context.currentTargetPosition;
+        hasTarget = true;
+        // --- ИЗМЕНЕНИЕ 2: Используем строчные буквы x, y, z ---
+        qCDebug(logTeleportToAction) << "Target is a position:" << targetPosition.x << targetPosition.y
+                                     << targetPosition.z;
+    }
+
+    if (!hasTarget)
+    {
+        qCWarning(logTeleportToAction) << "Teleport failed: no target GUID or position set in context.";
         return NodeStatus::Failure;
     }
 
-    const Vector3& targetPosition = targetObject->position;
-
-    // Проверяем, не находимся ли мы уже у цели. Используем маленькую дистанцию, т.к. телепорт точный. (2*2=4)
-    if (context.character->GetPosition().DistanceSq(targetPosition) < 4.0f)
+    if (character->GetPosition().DistanceSq(targetPosition) < 4.0f)
     {
-        qCInfo(logTeleportToAction) << "Already at target. Success.";
+        qCInfo(logTeleportToAction) << "Already at target position. Success.";
+        context.currentTargetPosition = Vector3();
         return NodeStatus::Success;
     }
 
-    // Отправляем команду на телепортацию
-    qCInfo(logTeleportToAction) << "TeleportTo command sent for target" << Qt::hex << context.currentTargetGuid;
+    qCInfo(logTeleportToAction) << "TeleportTo command sent for position" << targetPosition.x << targetPosition.y
+                                << targetPosition.z;
     bool teleportInitiated = movementManager->teleportTo(targetPosition);
 
-    // Телепортация - это быстрая операция. Мы считаем ее либо успешной, либо провальной сразу.
-    // Если teleportTo вернет true, значит все прошло хорошо.
     return teleportInitiated ? NodeStatus::Success : NodeStatus::Failure;
 }

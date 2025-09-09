@@ -19,11 +19,10 @@ ProfileManager::~ProfileManager()
 
 std::shared_ptr<GatheringProfile> ProfileManager::getGatheringProfile(const QString& path)
 {
-    // Создаем "умный" замок. Пока он существует, мьютекс заблокирован.
-    // Другие потоки, которые попытаются вызвать эту функцию, будут ждать здесь.
+    // Потокобезопасная блокировка
     QMutexLocker locker(&m_mutex);
 
-    // 1. Проверяем, есть ли профиль в нашем кэше.
+    // 1. Проверяем кэш
     if (m_loadedProfiles.contains(path))
     {
         qCDebug(logProfileManager) << "Returning cached profile for path:" << path;
@@ -31,20 +30,20 @@ std::shared_ptr<GatheringProfile> ProfileManager::getGatheringProfile(const QStr
     }
 
     qCInfo(logProfileManager) << "Cache miss. Loading profile from path:" << path;
-    // 2. Если в кэше нет - парсим файл.
+    // 2. Если в кэше нет - парсим файл
     auto newProfile = parseGatheringProfile(path);
 
     if (newProfile)
     {
-        // 3. Если парсинг прошел успешно, сохраняем результат в кэш.
+        // 3. Если парсинг успешен, сохраняем в кэш
         m_loadedProfiles.insert(path, newProfile);
         qCInfo(logProfileManager) << "Profile loaded and cached successfully.";
     }
 
     return newProfile;
-    // `locker` здесь автоматически уничтожается, освобождая мьютекс.
 }
 
+// Этот метод мы полностью переписываем, чтобы он читал твой формат
 std::shared_ptr<GatheringProfile> ProfileManager::parseGatheringProfile(const QString& path)
 {
     QFile file(path);
@@ -63,7 +62,7 @@ std::shared_ptr<GatheringProfile> ProfileManager::parseGatheringProfile(const QS
 
     QJsonObject root = doc.object();
 
-    // Проверяем тип профиля, чтобы не загрузить случайно квестовый профиль.
+    // Проверяем тип профиля. Это обязательно.
     if (root.value("profileType").toString() != "Gathering")
     {
         qCCritical(logProfileManager) << "Invalid profile type. Expected 'Gathering', but got:"
@@ -74,9 +73,16 @@ std::shared_ptr<GatheringProfile> ProfileManager::parseGatheringProfile(const QS
     // Создаем наш объект профиля
     auto profile = std::make_shared<GatheringProfile>();
 
-    profile->profileName = root.value("profileName").toString("Unnamed Profile");
+    // --- НЕОБЯЗАТЕЛЬНЫЕ ПОЛЯ (для расширенного формата) ---
+    // Парсер не будет ругаться, если этих полей нет.
 
-    // Парсим настройки
+    // Имя профиля
+    if (root.contains("profileName"))
+    {
+        profile->profileName = root.value("profileName").toString("Unnamed Profile");
+    }
+
+    // Настройки
     if (root.contains("settings") && root.value("settings").isObject())
     {
         QJsonObject settingsObj = root.value("settings").toObject();
@@ -91,7 +97,7 @@ std::shared_ptr<GatheringProfile> ProfileManager::parseGatheringProfile(const QS
         }
     }
 
-    // Парсим ID ресурсов
+    // ID ресурсов
     if (root.contains("gatherNodeIds") && root.value("gatherNodeIds").isArray())
     {
         for (const auto& val : root.value("gatherNodeIds").toArray())
@@ -100,16 +106,27 @@ std::shared_ptr<GatheringProfile> ProfileManager::parseGatheringProfile(const QS
         }
     }
 
-    // Парсим путь (маршрут)
+    // --- ОБЯЗАТЕЛЬНОЕ ПОЛЕ (для твоего простого формата) ---
+    // Маршрут
     if (root.contains("path") && root.value("path").isArray())
     {
         for (const auto& val : root.value("path").toArray())
         {
             QJsonObject pointObj = val.toObject();
-            profile->path.push_back({static_cast<float>(pointObj.value("X").toDouble()),
-                                     static_cast<float>(pointObj.value("Y").toDouble()),
-                                     static_cast<float>(pointObj.value("Z").toDouble())});
+            // Проверяем, что в точке есть все координаты
+            if (pointObj.contains("X") && pointObj.contains("Y") && pointObj.contains("Z"))
+            {
+                profile->path.push_back({static_cast<float>(pointObj.value("X").toDouble()),
+                                         static_cast<float>(pointObj.value("Y").toDouble()),
+                                         static_cast<float>(pointObj.value("Z").toDouble())});
+            }
         }
+    }
+
+    // Проверяем, что мы загрузили хоть что-то полезное
+    if (profile->path.empty())
+    {
+        qCWarning(logProfileManager) << "Profile" << path << "was loaded, but it contains no path points.";
     }
 
     qCInfo(logProfileManager) << "Parsed profile:" << profile->profileName << "with" << profile->path.size()
