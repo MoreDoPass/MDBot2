@@ -84,7 +84,7 @@ std::unique_ptr<BTNode> OreGrindModule::build(BTContext& context)
     // Выполняется, если attemptGatherBranch вернула Failure.
     std::vector<std::unique_ptr<BTNode>> followPathChildren;
     followPathChildren.push_back(std::make_unique<FollowPathAction>());
-    followPathChildren.push_back(std::make_unique<ModifyTargetZAction>(-100.0f));
+    followPathChildren.push_back(std::make_unique<ModifyTargetZAction>(-50.0f));
     followPathChildren.push_back(createMovementNode(context));
     auto followPathBranch = std::make_unique<SequenceNode>(std::move(followPathChildren));
 

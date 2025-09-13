@@ -34,7 +34,7 @@ NodeStatus FollowPathAction::tick(BTContext& context)
         {
             // Устанавливаем таймер ожидания. 4 тика * 150 мс = 600 мс (чуть больше 0.5 сек)
             qCInfo(logFollowPath) << "Waypoint" << context.currentPathIndex << "reached. Waiting for ~0.6 seconds...";
-            context.waypointWaitCounter = 4;
+            context.waypointWaitCounter = 3;
         }
 
         context.waypointWaitCounter--;
