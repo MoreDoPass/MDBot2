@@ -39,6 +39,15 @@ class Bot : public QObject
     MovementManager* movementManager() const;
     GameObjectManager* gameObjectManager() const;
 
+    /**
+     * @brief Возвращает GUID текущей цели, которую выбрало дерево поведения.
+     * @details Этот метод является "мостом" для GUI, позволяя безопасно
+     *          получить информацию о текущей цели бота для дальнейших действий,
+     *          например, для добавления в черный список.
+     * @return GUID цели или 0, если цель не выбрана.
+     */
+    quint64 getCurrentTargetGuid() const;
+
    public slots:
     void start(const BotStartSettings& settings, ProfileManager* profileManager);
     void stop();

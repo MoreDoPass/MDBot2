@@ -70,6 +70,7 @@ target_link_libraries(MDBot2 PRIVATE
     Core_Database
     Core_ProfileManager
     Core_BehaviorTree
+    Core_BlacklistManager
 )
 
 # Указываем, где искать заголовочные файлы

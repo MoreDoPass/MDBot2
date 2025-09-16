@@ -143,3 +143,15 @@ target_include_directories(Core_ProfileManager PUBLIC
 target_link_libraries(Core_ProfileManager PUBLIC
     Qt6::Core
 )
+
+# --- НОВЫЙ БЛОК: Библиотека BlacklistManager ---
+add_library(Core_BlacklistManager STATIC
+    BlacklistManager/BlacklistManager.cpp
+)
+target_include_directories(Core_BlacklistManager PUBLIC
+    ${CORE_INCLUDE_DIR}
+)
+# BlacklistManager использует Qt для работы с файлами, JSON и логированием.
+target_link_libraries(Core_BlacklistManager PUBLIC
+    Qt6::Core
+)

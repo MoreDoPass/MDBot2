@@ -40,10 +40,18 @@ class MainWidget : public QWidget
     void onStopClicked();
     void onBotFinished();
 
+    /**
+     * @brief Слот, вызываемый при нажатии на кнопку "В ЧС тек. цель".
+     * @details Получает у текущего бота GUID его цели и отправляет команду
+     *          на добавление в BlacklistManager.
+     */
+    void onBlacklistCurrentTargetClicked();
+
    private:
     Bot* m_bot = nullptr;
     QPushButton* m_startButton = nullptr;
     QPushButton* m_stopButton = nullptr;
+    QPushButton* m_blacklistButton = nullptr;
     QLabel* m_statusLabel = nullptr;
     QComboBox* m_moduleComboBox = nullptr;  // Выпадающий список для выбора модуля
 

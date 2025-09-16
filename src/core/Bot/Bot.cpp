@@ -290,3 +290,17 @@ void Bot::provideDebugData()
         qCWarning(logBot) << "Failed to read shared memory on demand for debug widget.";
     }
 }
+
+quint64 Bot::getCurrentTargetGuid() const
+{
+    // Проверяем, что контекст дерева поведения существует, чтобы избежать падения
+    if (m_btContext)
+    {
+        // Просто возвращаем значение из контекста
+        return m_btContext->currentTargetGuid;
+    }
+
+    // Если контекста нет (бот не запущен или произошла ошибка), возвращаем 0
+    qCWarning(logBot) << "Attempted to get current target GUID, but BTContext is null.";
+    return 0;
+}
