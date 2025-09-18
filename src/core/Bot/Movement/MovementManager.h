@@ -57,6 +57,11 @@ class MovementManager : public QObject
     void setSettings(const MovementSettings& settings);
     MovementSettings settings() const;
 
+    SharedMemoryManager* getSharedMemory() const
+    {
+        return m_sharedMemory;
+    }
+
    private slots:
     void updatePathExecution();
 

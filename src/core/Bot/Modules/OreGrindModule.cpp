@@ -14,6 +14,8 @@
 #include "core/Bot/Behaviors/Movement/ModifyTargetZAction.h"
 #include <vector>
 
+#include "core/Bot/CombatLogic/Paladin/RetributionBuilder.h"
+
 // --- ИЗМЕНЕНИЕ: Упрощаем эту функцию ---
 // Теперь она не содержит никакой логики, кроме выбора типа движения.
 // Проверки на игроков будут делаться в самом дереве.
@@ -90,6 +92,9 @@ std::unique_ptr<BTNode> OreGrindModule::build(BTContext& context)
 
     // "Менеджер-Прагматик" (Selector), который управляет ветками
     std::vector<std::unique_ptr<BTNode>> mainLogicChildren;
+
+    // ПЕРЕД всеми остальными задачами мы добавляем нашу боевую логику.
+    mainLogicChildren.push_back(RetributionBuilder::buildCombatTree(context));
     mainLogicChildren.push_back(std::move(attemptGatherBranch));  // Сначала попробуй найти и собрать
     mainLogicChildren.push_back(std::move(followPathBranch));     // Если не вышло - лети к следующей точке
     auto mainLogic = std::make_unique<SelectorNode>(std::move(mainLogicChildren));

@@ -8,6 +8,12 @@
 #include "shared/Structures/Player.h"  // Включает Unit и WorldObject
 #include "shared/Structures/GameObject.h"
 
+typedef int(__cdecl* LUA_SpellHandler_t)(int spellId, void* pAoETargetObject, int targetGuid_Low, int targetGuid_High,
+                                         char suppressErrors);
+
+// Создаем указатель на функцию с ее реальным адресом в памяти
+const LUA_SpellHandler_t CastSpell_Lua_Or_Handler = (LUA_SpellHandler_t)0x0080DA40;
+
 namespace CtmOffsets
 {
 constexpr uintptr_t CTM_X_COORD = 0xCA1264;
@@ -52,6 +58,76 @@ static int32_t getEntryIdFromGuid(uint64_t guid, GameObjectType type)
 }
 
 /**
+ * @brief (ФИНАЛЬНАЯ ВЕРСИЯ БЕЗ UNION) Читает ID всех активных аур, используя точные счетчики.
+ * @details Эта функция реализует логику с двумя режимами. Она читает "умный"
+ *          счетчик/флаг на смещении 0xDD0. Если он не -1, используется встроенный массив.
+ *          Если он -1, используется динамический массив, а его вместимость читается
+ *          со смещения 0xEE0.
+ * @param pUnit Указатель на объект Unit в памяти игры.
+ * @param outInfo Ссылка на структуру GameObjectInfo, куда будут записаны результаты.
+ */
+void ReadUnitAuras(Unit* pUnit, GameObjectInfo& outInfo)
+{
+    outInfo.auraCount = 0;
+    if (!pUnit) return;
+
+    AuraSlot* auraArray = nullptr;
+    int aurasToScan = 0;  // Количество слотов для сканирования
+
+    // --- ШАГ 1: Проверяем режим работы, используя твою структуру ---
+    if (pUnit->m_auraCount_or_Flag != -1)
+    {
+        // РЕЖИМ 1: "Простой"
+        // Указатель на ауры - это просто адрес поля m_auras
+        auraArray = pUnit->m_auras;
+
+        // Используем точный счетчик из этого же поля
+        aurasToScan = pUnit->m_auraCount_or_Flag;
+    }
+    else
+    {
+        // РЕЖИМ 2: "Сложный"
+        // Читаем указатель на динамический массив. Он лежит по смещению 0xC58.
+        // Это то же самое место, где в "простом" режиме начинается m_auras[1].
+        auraArray = *(AuraSlot**)((char*)pUnit + 0xC58);
+
+        // ЧИТАЕМ НАСТОЯЩУЮ ВМЕСТИМОСТЬ МАССИВА!
+        // Используем наше поле m_auras_capacity
+        aurasToScan = pUnit->m_auras_capacity;
+    }
+
+    if (!auraArray) return;
+
+    // --- ШАГ 2: В цикле с ТОЧНОЙ границей читаем ID спеллов ---
+    for (int i = 0; i < aurasToScan; ++i)
+    {
+        // Предохранитель, чтобы не переполнить НАШ буфер в SharedData
+        if (outInfo.auraCount >= MAX_AURAS_PER_UNIT)
+        {
+            break;
+        }
+
+        try
+        {
+            AuraSlot& slot = auraArray[i];
+
+            // Наш финальный, самый простой и надежный фильтр
+            if (slot.spellId != 0)
+            {
+                outInfo.auras[outInfo.auraCount] = slot.spellId;
+                outInfo.auraCount++;
+            }
+        }
+        catch (...)
+        {
+            // Аварийный выход, если что-то пошло не так
+            OutputDebugStringA("MDBot_Client: Exception caught while reading aura, stopping.");
+            break;
+        }
+    }
+}
+
+/**
  * @brief Обработчик главного игрового цикла.
  * @details Вызывается очень часто. Отвечает за две задачи:
  *          1. Выполнение команд, полученных от MDBot2.exe (например, MoveTo).
@@ -72,7 +148,8 @@ void GameLoopHook::handler(const Registers* regs)
     }
 
     // --- 1. ОБРАБОТКА КОМАНД ОТ КЛИЕНТА ---
-    if (sharedData->commandToDll.type != ClientCommandType::None)
+    // Теперь мы проверяем статус PENDING
+    if (sharedData->commandToDll.status == CommandStatus::Pending)
     {
         ClientCommand& cmd = sharedData->commandToDll;
         char debugMsg[256];
@@ -91,10 +168,37 @@ void GameLoopHook::handler(const Registers* regs)
                 OutputDebugStringA(debugMsg);
                 break;
             }
+
+            // --- НАШ НОВЫЙ ОБРАБОТЧИК ---
+            case ClientCommandType::CastSpellOnTarget:
+            {
+                // 1. Читаем параметры из команды
+                int spellId = cmd.spellId;
+                uint64_t targetGUID = cmd.targetGuid;
+
+                // 2. Разбиваем GUID на две 32-битные части
+                int guid_low = (int)(targetGUID & 0xFFFFFFFF);
+                int guid_high = (int)(targetGUID >> 32);
+
+                // 3. Вызываем функцию игры!
+                CastSpell_Lua_Or_Handler(spellId, NULL, guid_low, guid_high, 0);
+
+                sprintf_s(debugMsg, "MDBot_Client: Executed CastSpellOnTarget. SpellID: %d, Target: %llX", spellId,
+                          targetGUID);
+                OutputDebugStringA(debugMsg);
+                break;
+            }
+                // -----------------------------
+
             default:
+                // Можно добавить лог для неизвестных команд
+                sprintf_s(debugMsg, "MDBot_Client: Received unknown command type: %d", static_cast<int>(cmd.type));
+                OutputDebugStringA(debugMsg);
                 break;
         }
-        cmd.type = ClientCommandType::None;
+
+        // Сообщаем "мозгу", что команда выполнена.
+        sharedData->commandToDll.status = CommandStatus::Acknowledged;
     }
 
     // --- 2. СБОР ДАННЫХ ОБ ОБЪЕКТАХ ---
@@ -124,12 +228,13 @@ void GameLoopHook::handler(const Registers* regs)
                 case GameObjectType::Player:
                 {
                     Unit* unit = reinterpret_cast<Unit*>(objectPtr);
-                    info.position = unit->position;
+                    info.position = unit->m_movement.position;
                     info.health = unit->health;
                     info.maxHealth = unit->maxHealth;
                     info.mana = unit->mana;
                     info.maxMana = unit->maxMana;
                     info.level = unit->level;
+                    ReadUnitAuras(unit, info);
                     break;
                 }
                 case GameObjectType::GameObject:
@@ -152,19 +257,14 @@ void GameLoopHook::handler(const Registers* regs)
     }
 
     // --- 3. ЗАПОЛНЕНИЕ ДАННЫХ ИГРОКА ---
-    // Используем указатель, который для нас обновляет CharacterHook
     if (g_playerPtr != 0)
     {
         try
         {
-            // Накладываем нашу структуру Unit на указатель, чтобы прочитать данные.
-            // Player наследуется от Unit, поэтому все эти поля там есть.
             Unit* playerUnit = reinterpret_cast<Unit*>(g_playerPtr);
-
-            // Копируем данные из памяти игры в нашу общую структуру
             sharedData->player.baseAddress = g_playerPtr;
             sharedData->player.guid = playerUnit->guid;
-            sharedData->player.position = playerUnit->position;
+            sharedData->player.position = playerUnit->m_movement.position;
             sharedData->player.health = playerUnit->health;
             sharedData->player.maxHealth = playerUnit->maxHealth;
             sharedData->player.mana = playerUnit->mana;
@@ -174,14 +274,11 @@ void GameLoopHook::handler(const Registers* regs)
         catch (...)
         {
             OutputDebugStringA("MDBot_Client: CRITICAL - Exception caught while reading player data.");
-            // В случае ошибки обнуляем данные, чтобы клиент не использовал мусор.
             memset(&sharedData->player, 0, sizeof(PlayerData));
         }
     }
     else
     {
-        // Если указатель еще не получен (например, мы на экране выбора персонажа),
-        // обнуляем данные.
         memset(&sharedData->player, 0, sizeof(PlayerData));
     }
 }

@@ -1,71 +1,55 @@
-План Внедрения Постоянного Черного Списка
-Шаг 1: Создание фундамента — BlacklistManager
-Цель: Создать центральный, потокобезопасный синглтон для управления постоянным черным списком.
-Действия:
-Я создам два новых файла:
-src/core/Blacklist/BlacklistManager.h
-src/core/Blacklist/BlacklistManager.cpp
-В .h файле я опишу интерфейс класса:
-Статический метод instance().
-Публичные методы add(quint64 guid), remove(quint64 guid), contains(quint64 guid) const.
-Публичный метод getBlacklistedGuids() const для GUI.
-Сигнал blacklistUpdated() для обновления GUI в реальном времени.
-Приватный конструктор, методы load() и save(), QSet для хранения GUID'ов и QReadWriteLock для потокобезопасности.
-В .cpp файле я реализую всю логику:
-Конструктор будет вызывать load().
-load() будет читать и парсить permanent_blacklist.json.
-save() будет записывать текущий список в permanent_blacklist.json.
-add()/remove() будут использовать QWriteLocker для безопасного изменения QSet и вызывать save().
-contains() будет использовать QReadLocker для сверхбыстрого и безопасного чтения из 10+ потоков ботов.
-Результат: У нас появится полностью готовый и изолированный компонент, управляющий ЧС. Он еще не будет использоваться, но будет готов к работе.
-
-Шаг 2: Интеграция с "мозгом" бота
-Цель: Научить Дерево Поведения проверять объекты по постоянному черному списку.
-Действия:
-Я попрошу тебя открыть для меня файл FindObjectByIdAction.cpp.
-Я добавлю в него всего несколько строк:
-#include "core/Blacklist/BlacklistManager.h"
-Внутри цикла for, перед проверкой временного ЧС, я добавлю проверку if (BlacklistManager::instance().contains(objInfo->guid)).
-Результат: Бот начнет игнорировать объекты, GUID'ы которых находятся в файле permanent_blacklist.json. Логика будет работать полностью автоматически.
-Шаг 3: Создание "моста" к GUI
-
-Цель: Дать возможность GUI добавлять объекты в черный список через активного бота.
-Действия:
-Я попрошу тебя открыть Bot.h и Bot.cpp.
-В Bot.h я добавлю один простой публичный метод:
-code
-C++
-/**
- * @brief Возвращает GUID текущей цели, которую выбрало дерево поведения.
- * @return GUID цели или 0, если цель не выбрана.
- */
-quint64 getCurrentTargetGuid() const;
-В Bot.cpp я реализую его, он будет просто возвращать m_btContext->currentTargetGuid.
-Результат: У нас появится безопасный способ для GUI узнать, на какой объект "смотрит" бот в данный момент, чтобы затем передать его GUID в BlacklistManager.
-
-Шаг 4: Реализация в GUI (Концептуальный)
-Цель: Подключить созданные нами механизмы к кнопкам и спискам в интерфейсе.
-Действия (эту часть ты будешь делать сам, но вот как это будет работать):
-Ты создаешь кнопку "Добавить цель в ЧС".
-В обработчике нажатия этой кнопки ты:
-Получаешь указатель на текущего активного бота (currentBot).
-Вызываешь quint64 guid = currentBot->getCurrentTargetGuid();
-Если guid != 0, вызываешь BlacklistManager::instance().add(guid);. Готово!
-Ты создаешь виджет для отображения списка (например, QListWidget).
-В конструкторе твоего виджета ты подписываешься на сигнал: connect(&BlacklistManager::instance(), &BlacklistManager::blacklistUpdated, this, &MyWidget::refreshBlacklist);.
-В слоте refreshBlacklist ты очищаешь список и заново заполняешь его данными из BlacklistManager::instance().getBlacklistedGuids().
-Результат: Полноценная, интерактивная и работающая в реальном времени система управления постоянным черным списком.
+struct ClickInfo {
+    int unknown0;         // Смещение +0x0
+    int unknown1;         // Смещение +0x4
+    float ClickX;         // Смещение +0x8
+    float ClickY;         // Смещение +0xC
+    float ClickZ;         // Смещение +0x10
+    // ... остальные поля не важны
+};
 
 
+Часть 1: Реализация атаки на цель
+MDBot2.exe ("Мозг"):
+В SharedData.h добавляешь новый тип команды в enum CommandType: CMD_CAST_SPELL_ON_TARGET.
+В структуре CommandToDll добавляешь поля: int spellId; uint64_t targetGUID;.
+В Дереве Поведения создаешь ActionNode, который находит врага, получает его GUID и spellId нужной атаки.
+Этот ActionNode формирует команду: command.type = CMD_CAST_SPELL_ON_TARGET; command.spellId = ...; command.targetGUID = ...; и выставляет статус PENDING.
+MDBot_Client.dll ("Агент"):
+В GameLoopHook добавляешь обработчик для CMD_CAST_SPELL_ON_TARGET.
+Внутри обработчика:
+Определяешь указатель на функцию Spell::Cast.
+Разбиваешь targetGUID на low и high части.
+Вызываешь Spell::Cast(spellId, NULL, guid_low, guid_high, 0);.
+Устанавливаешь статус команды в ACKNOWLEDGED.
+Тестирование: Запускаешь бота, он должен найти моба и атаковать его одним заклинанием.
+Часть 2: Реализация AoE-атаки ("Гроза")
+MDBot2.exe ("Мозг"):
+В SharedData.h добавляешь новый тип команды: CMD_CAST_SPELL_AT_POSITION.
+В структуре CommandToDll добавляешь поля: float targetX, targetY, targetZ;.
+В Дереве Поведения создаешь ActionNode, который определяет, куда нужно кастовать AoE (например, в центр группы мобов), и получает координаты (X, Y, Z).
+Этот ActionNode формирует команду CMD_CAST_SPELL_AT_POSITION с spellId и координатами X,Y,Z.
+MDBot_Client.dll ("Агент"):
+В GameLoopHook добавляешь обработчик для CMD_CAST_SPELL_AT_POSITION.
+Внутри обработчика:
+Определяешь указатели на обе функции: Spell::Cast и Spell::HandleTerrainClick.
+Шаг А (Инициация): Вызываешь Spell::Cast(spellId, NULL, 0, 0, 0);.
+Шаг Б (Подготовка клика): Создаешь на стеке структуру ClickInfo fakeClick;.
+Заполняешь ее: fakeClick.ClickX = targetX; fakeClick.ClickY = targetY; ...
+Шаг В (Исполнение): Вызываешь Spell::HandleTerrainClick(&fakeClick);.
+Устанавливаешь статус команды в ACKNOWLEDGED.
+Тестирование: Даешь боту команду кастануть "Грозу" в определенные координаты. Он должен это сделать.
 
 
-
-
-
-
-
-
-
-
-
-Документация в behavior
+Твой план по созданию папок:
+src/core/bot/CombatManager/
+Содержимое: CombatManager.h, CombatManager.cpp
+Назначение: Низкоуровневый исполнитель. Будет содержать методы castSpell, startAutoAttack и т.д., которые просто формируют команду и отправляют ее в SharedMemory.
+Оценка: Правильно.
+src/core/Bot/Behaviors/Combat/
+Содержимое: IsHealthLowCondition.h/.cpp, CastSpellAction.h/.cpp, FindBestTargetAction.h/.cpp и другие "кирпичики LEGO".
+Назначение: Атомарные, переиспользуемые "навыки", из которых будет строиться боевая логика.
+Оценка: Правильно.
+src/core/Bot/CombatLogic/
+Содержимое: MageFrostPve.h/.cpp, PaladinRetributionPve.h/.cpp и т.д.
+Назначение: Высокоуровневые "сборщики ротаций". Каждый класс здесь будет содержать статический метод buildCombatTree(), который соберет из "кирпичиков" (Behaviors) полноценное дерево для конкретного класса/спека.
+Оценка: Правильно.

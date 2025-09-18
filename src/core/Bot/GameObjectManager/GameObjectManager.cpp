@@ -128,3 +128,25 @@ std::vector<const GameObjectInfo*> GameObjectManager::getAllObjects() const
     }
     return result;
 }
+
+bool GameObjectManager::unitHasAura(uint64_t guid, int32_t spellId) const
+{
+    // 1. Находим объект в нашем кэше
+    const GameObjectInfo* info = getObjectByGuid(guid);
+    if (!info)
+    {
+        return false;  // Если объекта нет, то и аур у него нет
+    }
+
+    // 2. В простом цикле ищем нужный ID в массиве аур
+    for (int i = 0; i < info->auraCount; ++i)
+    {
+        if (info->auras[i] == spellId)
+        {
+            return true;  // Нашли!
+        }
+    }
+
+    // 3. Если цикл завершился, а мы ничего не нашли
+    return false;
+}

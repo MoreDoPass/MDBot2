@@ -58,7 +58,21 @@ NodeStatus MoveToTargetAction::tick(BTContext& context)
     {
         qCInfo(logMoveToAction) << "Already at target position. Success.";
         context.currentTargetPosition = Vector3();
+        movementManager->stop();
         return NodeStatus::Success;
+    }
+
+    SharedData* data = context.movementManager->getSharedMemory()->getMemoryPtr();  // Получаем доступ к памяти
+    if (data)
+    {
+        // Если команда на движение к ЭТОЙ ЖЕ точке уже отправлена,
+        // то ничего не делаем, просто продолжаем ждать.
+        if (data->commandToDll.type == ClientCommandType::MoveTo &&
+            data->commandToDll.position.DistanceSq(targetPosition) < 1.0f)
+        {
+            qCDebug(logMoveToAction) << "MoveTo command is already active. Waiting...";
+            return NodeStatus::Running;
+        }
     }
 
     movementManager->moveTo(targetPosition);

@@ -5,6 +5,7 @@
 #include "core/Bot/Character/Character.h"
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
 #include "core/Bot/Movement/MovementManager.h"
+#include "core/bot/CombatManager/CombatManager.h"
 #include "core/Bot/Settings/BotSettings.h"       // <-- ДОБАВЛЕНО: нужен для BotStartSettings
 #include "core/Bot/Profiles/GatheringProfile.h"  // <-- ДОБАВЛЕНО: нужен для GatheringProfile
 #include "Shared/Utils/Vector.h"                 // <-- ДОБАВЛЕНО: нужен для Vec3
@@ -26,6 +27,7 @@ class BTContext
     Character* character = nullptr;
     GameObjectManager* gameObjectManager = nullptr;
     MovementManager* movementManager = nullptr;
+    CombatManager* combatManager = nullptr;
     ProfileManager* profileManager = nullptr;
 
     // --- Настройки ---

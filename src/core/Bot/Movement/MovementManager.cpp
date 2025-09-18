@@ -131,7 +131,7 @@ bool MovementManager::moveTo(const Vector3& position)
 
     // Проверяем, не занята ли DLL выполнением другой команды.
     // В будущем можно будет сделать очередь команд.
-    if (data->commandToDll.type != ClientCommandType::None)
+    if (data->commandToDll.status != CommandStatus::None)
     {
         qCWarning(logMovementManager) << "Cannot move: DLL is busy with another command.";
         return false;
@@ -140,6 +140,7 @@ bool MovementManager::moveTo(const Vector3& position)
     // Формируем и отправляем команду
     data->commandToDll.type = ClientCommandType::MoveTo;
     data->commandToDll.position = position;
+    data->commandToDll.status = CommandStatus::Pending;
 
     qCInfo(logMovementManager) << "MoveTo command sent to DLL for position (" << position.x << "," << position.y << ","
                                << position.z << ")";

@@ -57,6 +57,14 @@ class GameObjectManager : public QObject
      */
     std::vector<const GameObjectInfo*> getAllObjects() const;
 
+    /**
+     * @brief Проверяет, есть ли у объекта с заданным GUID определенная аура.
+     * @param guid GUID проверяемого объекта.
+     * @param spellId ID искомой ауры (баффа/дебаффа).
+     * @return true, если у объекта есть такая аура, иначе false.
+     */
+    bool unitHasAura(uint64_t guid, int32_t spellId) const;
+
    private:
     /**
      * @brief Внутренний кэш игровых объектов.

@@ -16,7 +16,8 @@ DebugWidget::DebugWidget(Bot* bot, QWidget* parent) : QWidget(parent), m_bot(bot
     m_objectsModel = new QStandardItemModel(this);
 
     m_objectsTable->setModel(m_objectsModel);
-    m_objectsModel->setHorizontalHeaderLabels({tr("GUID"), tr("Тип"), tr("Entry ID"), tr("Позиция (X, Y, Z)")});
+    m_objectsModel->setHorizontalHeaderLabels(
+        {tr("GUID"), tr("Тип"), tr("Entry ID"), tr("Позиция (X, Y, Z)"), tr("Ауры (ID)")});
     m_objectsTable->horizontalHeader()->setStretchLastSection(true);
     m_objectsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
@@ -55,7 +56,8 @@ void DebugWidget::onDebugDataReady(const SharedData& data)
     // --- КОНЕЦ НОВОГО КОДА ---
 
     m_objectsModel->clear();
-    m_objectsModel->setHorizontalHeaderLabels({tr("GUID"), tr("Тип"), tr("Entry ID"), tr("Позиция (X, Y, Z)")});
+    m_objectsModel->setHorizontalHeaderLabels(
+        {tr("GUID"), tr("Тип"), tr("Entry ID"), tr("Позиция (X, Y, Z)"), tr("Ауры (ID)")});
 
     for (int i = 0; i < data.visibleObjectCount; ++i)
     {
@@ -67,7 +69,24 @@ void DebugWidget::onDebugDataReady(const SharedData& data)
                                               .arg(obj.position.x, 0, 'f', 2)
                                               .arg(obj.position.y, 0, 'f', 2)
                                               .arg(obj.position.z, 0, 'f', 2));
-        m_objectsModel->appendRow({guidItem, typeItem, entryIdItem, posItem});  // <-- ДОБАВЛЯЕМ В СТРОКУ
+        // 1. Формируем строку с ID аур
+        QString aurasString;
+        if (obj.auraCount > 0)
+        {
+            QStringList auraIds;
+            for (int j = 0; j < obj.auraCount; ++j)
+            {
+                auraIds.append(QString::number(obj.auras[j]));
+            }
+            aurasString = auraIds.join(", ");  // Соединяем ID через запятую: "123, 456, 789"
+        }
+
+        // 2. Создаем элемент для таблицы
+        auto* aurasItem = new QStandardItem(aurasString);
+        // --- КОНЕЦ НОВОГО КОДА ---
+
+        // 4. Добавляем новый элемент в строку таблицы
+        m_objectsModel->appendRow({guidItem, typeItem, entryIdItem, posItem, aurasItem});
     }
 }
 

@@ -11,6 +11,7 @@
 #include "core/Bot/Character/Character.h"
 #include "core/Bot/Movement/MovementManager.h"
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
+#include "core/bot/CombatManager/CombatManager.h"
 #include "core/SharedMemoryManager/SharedMemoryManager.h"
 #include "Shared/Data/SharedData.h"
 
@@ -38,6 +39,7 @@ class Bot : public QObject
     Character* character() const;
     MovementManager* movementManager() const;
     GameObjectManager* gameObjectManager() const;
+    CombatManager* combatManager() const;
 
     /**
      * @brief Возвращает GUID текущей цели, которую выбрало дерево поведения.
@@ -69,8 +71,11 @@ class Bot : public QObject
     MemoryManager m_memoryManager;  ///< Объект MemoryManager для работы с памятью
     HookManager m_hookManager;
     Character* m_character = nullptr;
+
     MovementManager* m_movementManager = nullptr;
     GameObjectManager* m_gameObjectManager = nullptr;
+    CombatManager* m_combatManager = nullptr;
+
     bool m_running = false;
     QThread* m_thread = nullptr;
 

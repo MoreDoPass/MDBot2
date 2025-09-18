@@ -99,6 +99,7 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
             m_character = new Character(this);
             m_gameObjectManager = new GameObjectManager(this);
             m_movementManager = new MovementManager(&m_sharedMemory, &m_memoryManager, m_character, this);
+            m_combatManager = new CombatManager(&m_sharedMemory, this);
 
             // --- НОВАЯ ЛОГИКА С ПОТОКОМ И ТАЙМЕРОМ ---
             m_thread = new QThread(this);         // Создаем поток
@@ -147,6 +148,7 @@ Bot::~Bot()
         delete m_gameObjectManager;
         delete m_character;
         delete m_movementManager;
+        delete m_combatManager;
 
         m_sharedMemory.close();
         qCInfo(logBot) << "Shared memory closed.";
@@ -181,6 +183,11 @@ GameObjectManager* Bot::gameObjectManager() const
     return m_gameObjectManager;
 }
 
+CombatManager* Bot::combatManager() const
+{
+    return m_combatManager;
+}
+
 void Bot::start(const BotStartSettings& settings, ProfileManager* profileManager)  // <-- ИЗМЕНЕНО
 {
     if (m_running)
@@ -198,6 +205,7 @@ void Bot::start(const BotStartSettings& settings, ProfileManager* profileManager
         m_btContext->character = m_character;
         m_btContext->gameObjectManager = m_gameObjectManager;
         m_btContext->movementManager = m_movementManager;
+        m_btContext->combatManager = m_combatManager;
     }
 
     // --- ДОБАВЛЕНО: Делаем ProfileManager доступным для Дерева Поведения ---
@@ -240,6 +248,18 @@ void Bot::tick()
         SharedData dataFromDll;
         if (m_sharedMemory.read(dataFromDll))
         {
+            SharedData* pWriteableData = m_sharedMemory.getMemoryPtr();
+            if (pWriteableData && pWriteableData->commandToDll.status == CommandStatus::Acknowledged)
+            {
+                qCDebug(logBot) << "Acknowledged command from DLL, resetting entire command block.";
+                // Мы должны очистить ВСЮ команду, чтобы любой менеджер мог отправить новую.
+                pWriteableData->commandToDll.status = CommandStatus::None;
+                pWriteableData->commandToDll.type = ClientCommandType::None;
+                pWriteableData->commandToDll.spellId = 0;
+                pWriteableData->commandToDll.targetGuid = 0;
+                // Можно и позицию очистить для полной гигиены
+                pWriteableData->commandToDll.position = {};
+            }
             if (m_gameObjectManager)
             {
                 m_gameObjectManager->updateFromSharedMemory(dataFromDll);

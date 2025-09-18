@@ -4,6 +4,7 @@
 #include "shared/Structures/Enums/GameObjectType.h"  // Включаем наш enum
 
 constexpr int32_t MAX_VISIBLE_OBJECTS = 128;
+constexpr int32_t MAX_AURAS_PER_UNIT = 40;
 
 /**
  * @struct GameObjectInfo
@@ -25,6 +26,9 @@ struct GameObjectInfo
     uint32_t mana = 0;
     uint32_t maxMana = 0;
     uint8_t level = 0;
+
+    int32_t auraCount;
+    int32_t auras[MAX_AURAS_PER_UNIT];
 
     // --- Данные для GameObject (руда/трава) ---
     // Пока оставим пустым, добавим позже при необходимости (например, имя)
@@ -50,6 +54,14 @@ struct PlayerData
     uint8_t level = 0;
 };
 
+// Этот enum используется и "мозгом", и DLL.
+enum class CommandStatus : uint32_t
+{
+    None,         // Нет команды, ничего не делать.
+    Pending,      // "Мозг" выставил новую команду, DLL должна ее выполнить.
+    Acknowledged  // DLL выполнила команду и ждет, пока "мозг" это увидит и очистит.
+};
+
 /**
  * @enum ClientCommandType
  * @brief Перечисление типов команд, которые основное приложение (клиент) может отправить в DLL.
@@ -60,7 +72,10 @@ enum class ClientCommandType : uint32_t
     MoveTo,    ///< Команда на перемещение к указанным координатам.
     Interact,  ///< Команда на взаимодействие с целью (NPC, руда, трава).
     Attack,    ///< Команда на атаку цели.
-    Stop       ///< Команда на прекращение текущего действия.
+    Stop,      ///< Команда на прекращение текущего действия.
+
+    // Теперь "Мозг" может приказать "Агенту" кастовать заклинание на цель.
+    CastSpellOnTarget
 };
 
 /**
@@ -72,11 +87,19 @@ struct ClientCommand
     /// @brief Тип выполняемой команды. DLL сбросит его в None после выполнения.
     ClientCommandType type = ClientCommandType::None;
 
+    /// А вот это поле будет управлять жизненным циклом команды
+    CommandStatus status = CommandStatus::None;
+
     /// @brief Координаты для команды MoveTo.
     Vector3 position;
 
     /// @brief GUID цели для команд Interact или Attack.
     uint64_t targetGuid = 0;
+
+    // Добавляем новое поле в "бланк заказа".
+    // Теперь, когда мы отдаем приказ CastSpellOnTarget,
+    // мы можем указать в этом поле ID нужного заклинания.
+    int32_t spellId = 0;
 };
 
 /**
