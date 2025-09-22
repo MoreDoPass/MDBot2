@@ -13,6 +13,7 @@
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
 #include "core/bot/CombatManager/CombatManager.h"
 #include "core/SharedMemoryManager/SharedMemoryManager.h"
+#include "core/Bot/InteractionManager/InteractionManager.h"
 #include "Shared/Data/SharedData.h"
 
 #include "core/Bot/Settings/BotSettings.h"
@@ -40,6 +41,7 @@ class Bot : public QObject
     MovementManager* movementManager() const;
     GameObjectManager* gameObjectManager() const;
     CombatManager* combatManager() const;
+    InteractionManager* interactionManager() const;
 
     /**
      * @brief Возвращает GUID текущей цели, которую выбрало дерево поведения.
@@ -75,6 +77,7 @@ class Bot : public QObject
     MovementManager* m_movementManager = nullptr;
     GameObjectManager* m_gameObjectManager = nullptr;
     CombatManager* m_combatManager = nullptr;
+    InteractionManager* m_interactionManager = nullptr;
 
     bool m_running = false;
     QThread* m_thread = nullptr;
@@ -90,3 +93,7 @@ class Bot : public QObject
     BotStartSettings m_currentSettings;
 };
 Q_DECLARE_LOGGING_CATEGORY(logBot)
+
+// ОБЪЯВЛЯЕМ общую категорию для всех узлов Дерева Поведения.
+// Все "кирпичики" будут подключать Bot.h, чтобы "узнать" об этой категории.
+Q_DECLARE_LOGGING_CATEGORY(logBT)

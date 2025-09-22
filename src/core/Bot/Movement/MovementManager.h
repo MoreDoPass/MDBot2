@@ -50,6 +50,13 @@ class MovementManager : public QObject
     bool teleportTo(const Vector3& position);
 
     /**
+     * @brief Повернуться лицом к цели, используя Click-To-Move через DLL.
+     * @param targetGuid GUID цели, к которой нужно повернуться.
+     * @return true, если команда успешно отправлена.
+     */
+    bool faceTarget(uint64_t targetGuid);
+
+    /**
      * @brief Остановить движение
      */
     void stop();

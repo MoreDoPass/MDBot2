@@ -150,3 +150,49 @@ bool GameObjectManager::unitHasAura(uint64_t guid, int32_t spellId) const
     // 3. Если цикл завершился, а мы ничего не нашли
     return false;
 }
+
+bool GameObjectManager::isUnitInCombat(uint64_t guid) const
+{
+    const GameObjectInfo* info = getObjectByGuid(guid);
+    if (info)
+    {
+        // Проверяем 19-й бит (маска 0x80000)
+        return (info->flags & 0x80000) != 0;
+    }
+    return false;  // Если объекта нет в кэше, он точно не в бою
+}
+
+uint64_t GameObjectManager::getUnitTargetGuid(uint64_t guid) const
+{
+    // 1. Находим объект в нашем кэше
+    const GameObjectInfo* info = getObjectByGuid(guid);
+
+    // 2. Если объект найден, возвращаем значение его поля targetGuid
+    if (info)
+    {
+        return info->targetGuid;
+    }
+
+    // 3. Если объект не найден, у него не может быть цели
+    return 0;
+}
+
+bool GameObjectManager::isUnitCasting(uint64_t unitGuid) const
+{
+    const GameObjectInfo* unit = getObjectByGuid(unitGuid);
+    if (unit)
+    {
+        return unit->isCasting;
+    }
+    return false;  // Если юнит не найден, считаем, что он не кастует.
+}
+
+uint32_t GameObjectManager::getUnitCastingSpellId(uint64_t unitGuid) const
+{
+    const GameObjectInfo* unit = getObjectByGuid(unitGuid);
+    if (unit)
+    {
+        return unit->castingSpellId;
+    }
+    return 0;  // Если юнит не найден, возвращаем 0.
+}

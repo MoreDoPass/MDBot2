@@ -210,3 +210,30 @@ void MovementManager::updatePathExecution()
 {
     // TODO: Адаптировать для новой системы
 }
+
+bool MovementManager::faceTarget(uint64_t targetGuid)
+{
+    if (!m_sharedMemory) return false;
+
+    SharedData* data = m_sharedMemory->getMemoryPtr();
+    if (!data)
+    {
+        qCCritical(logMovementManager) << "Cannot face target: Failed to get pointer to shared memory.";
+        return false;
+    }
+
+    if (data->commandToDll.status != CommandStatus::None)
+    {
+        qCWarning(logMovementManager) << "Cannot face target: DLL is busy with another command.";
+        return false;
+    }
+
+    // Формируем и отправляем команду
+    data->commandToDll.type = ClientCommandType::FaceTarget;
+    data->commandToDll.targetGuid = targetGuid;  // <-- Используем GUID
+    data->commandToDll.status = CommandStatus::Pending;
+
+    qCInfo(logMovementManager) << "FaceTarget command sent to DLL for GUID:" << Qt::hex << targetGuid;
+
+    return true;
+}

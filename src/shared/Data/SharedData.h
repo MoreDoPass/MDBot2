@@ -5,6 +5,7 @@
 
 constexpr int32_t MAX_VISIBLE_OBJECTS = 128;
 constexpr int32_t MAX_AURAS_PER_UNIT = 40;
+constexpr int32_t MAX_PLAYER_COOLDOWNS = 32;
 
 /**
  * @struct GameObjectInfo
@@ -20,18 +21,40 @@ struct GameObjectInfo
     int32_t entryId = 0;
     Vector3 position;
 
+    /**
+     * @brief Горизонтальный угол поворота юнита в радианах.
+     * @details Критически важно для определения, куда смотрит цель (для атак со спины)
+     *          и куда смотрим мы (для проверки facing).
+     */
+    float orientation = 0.0f;  // <-- ДОБАВЛЯЕМ СЮДА
+
     // --- Данные для Unit/Player ---
     uint32_t health = 0;
     uint32_t maxHealth = 0;
     uint32_t mana = 0;
     uint32_t maxMana = 0;
     uint8_t level = 0;
+    uint32_t flags = 0;
+    uint64_t targetGuid = 0;
 
     int32_t auraCount;
     int32_t auras[MAX_AURAS_PER_UNIT];
 
-    // --- Данные для GameObject (руда/трава) ---
-    // Пока оставим пустым, добавим позже при необходимости (например, имя)
+    bool isCasting;
+    uint32_t castingSpellId;
+};
+
+/**
+ * @struct SpellCooldown
+ * @brief "Плоская" структура для передачи информации об одном активном кулдауне.
+ */
+struct SpellCooldown
+{
+    uint32_t spellId;
+    uint32_t startTime;
+    uint32_t duration;
+    // Мы не передаем categoryCooldown и другие сложные поля,
+    // так как боту для принятия решения достаточно знать, активен ли КД по spellId.
 };
 
 /**
@@ -52,6 +75,18 @@ struct PlayerData
     uint32_t mana = 0;
     uint32_t maxMana = 0;
     uint8_t level = 0;
+    uint32_t flags = 0;
+
+    // --- ДОБАВЛЯЕМ БЛОК ДЛЯ КУЛДАУНОВ ---
+    int32_t activeCooldownCount = 0;
+    SpellCooldown activeCooldowns[MAX_PLAYER_COOLDOWNS];
+
+    /**
+     * @brief Флаг, указывающий, активен ли в данный момент боевой ГКД.
+     * @details Заполняется функцией ReadPlayerCooldowns. Если true, бот не должен
+     *          пытаться использовать способности, подверженные ГКД.
+     */
+    bool isGcdActive;
 };
 
 // Этот enum используется и "мозгом", и DLL.
@@ -70,12 +105,19 @@ enum class ClientCommandType : uint32_t
 {
     None = 0,  ///< Нет команды, состояние по умолчанию.
     MoveTo,    ///< Команда на перемещение к указанным координатам.
-    Interact,  ///< Команда на взаимодействие с целью (NPC, руда, трава).
     Attack,    ///< Команда на атаку цели.
     Stop,      ///< Команда на прекращение текущего действия.
 
     // Теперь "Мозг" может приказать "Агенту" кастовать заклинание на цель.
-    CastSpellOnTarget
+    CastSpellOnTarget,
+
+    /**
+     * @brief Команда на поворот персонажа лицом к цели.
+     * @details Использует внутриигровой механизм Click-To-Move.
+     *          В качестве параметра используется targetGuid.
+     */
+    FaceTarget,
+    NativeInteract
 };
 
 /**

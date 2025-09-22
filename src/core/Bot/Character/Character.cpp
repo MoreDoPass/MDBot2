@@ -33,14 +33,23 @@ Character::~Character()
  */
 void Character::updateFromSharedMemory(const PlayerData& newData)
 {
-    // Сравниваем старые и новые данные, чтобы не испускать сигнал без надобности.
-    // memcmp - очень быстрая операция для сравнения блоков памяти.
+    // --- Обновляем кэш кулдаунов ---
+    // Эта логика выполняется в каждом тике, чтобы иметь самые свежие данные.
+    m_isGcdActive = newData.isGcdActive;
+
+    m_activeCooldownIds.clear();
+    for (int i = 0; i < newData.activeCooldownCount; ++i)
+    {
+        m_activeCooldownIds.insert(newData.activeCooldowns[i].spellId);
+    }
+
+    // Сравниваем только основные данные (ХП, мана, позиция и т.д.),
+    // чтобы не спамить сигнал для GUI, которому кулдауны не важны.
     if (memcmp(&m_data, &newData, sizeof(CharacterData)) != 0)
     {
-        m_data = newData;  // Копируем новые данные
+        m_data = newData;
         emit dataChanged(m_data);
 
-        // Логируем только при изменении, чтобы не спамить в консоль.
         qCDebug(characterLog) << "Player data updated: HP:" << m_data.health << "/" << m_data.maxHealth
                               << "Pos:" << m_data.position.x << m_data.position.y << m_data.position.z
                               << "GUID:" << Qt::hex << m_data.guid;
@@ -117,6 +126,17 @@ uint32_t Character::getMana() const
 uint32_t Character::getMaxMana() const
 {
     return m_data.maxMana;
+}
+
+bool Character::isGcdActive() const
+{
+    return m_isGcdActive;
+}
+
+bool Character::isSpellOnCooldown(uint32_t spellId) const
+{
+    // contains() в QSet - это очень быстрая операция.
+    return m_activeCooldownIds.contains(spellId);
 }
 
 /**

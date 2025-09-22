@@ -47,6 +47,7 @@ add_executable(MDBot2
     src/gui/Bot/Modules/Gathering/GatheringWidget.cpp
     src/core/Bot/Movement/MovementManager.cpp
     src/core/Bot/CombatManager/CombatManager.cpp
+    src/core/Bot/InteractionManager/InteractionManager.cpp
     ${BEHAVIOR_FILES}
     ${MODULE_FILES}
     ${COMBAT_LOGIC_FILES}

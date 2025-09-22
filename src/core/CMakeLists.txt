@@ -13,6 +13,7 @@ add_library(Core_BehaviorTree STATIC
     BehaviorTree/SequenceNode.cpp
     BehaviorTree/SelectorNode.cpp   # <-- Добавили
     BehaviorTree/InverterNode.cpp   # <-- Добавили
+    BehaviorTree/WhileSuccessDecorator.cpp
 )
 target_include_directories(Core_BehaviorTree PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..

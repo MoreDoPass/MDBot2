@@ -12,6 +12,13 @@
 #include "core/Bot/Behaviors/Profiles/LoadGatheringProfileAction.h"
 #include "core/Bot/Behaviors/Movement/FollowPathAction.h"
 #include "core/Bot/Behaviors/Movement/ModifyTargetZAction.h"
+#include "core/Bot/Behaviors/Interactions/InteractWithTargetAction.h"
+#include "core/Bot/Behaviors/Conditions/IsCastingCondition.h"
+#include "core/BehaviorTree/WhileSuccessDecorator.h"
+#include "core/Bot/Behaviors/Targeting/HasTargetCondition.h"
+#include "core/Bot/Behaviors/Targeting/ClearTargetAction.h"
+#include "core/Bot/Behaviors/Conditions/IsInRangeCondition.h"
+#include "core/Bot/Behaviors/Utility/WaitAction.h"
 #include <vector>
 
 #include "core/Bot/CombatLogic/Paladin/RetributionBuilder.h"
@@ -48,61 +55,92 @@ static std::unique_ptr<BTNode> createMovementNode(BTContext& context)
     return std::make_unique<MoveToTargetAction>();
 }
 
+// Ветка: лететь по маршруту. Это Sequence: Шаг 1 И Шаг 2 И Шаг 3.
+std::unique_ptr<BTNode> OreGrindModule::createFollowPathBranch(BTContext& context)
+{
+    std::vector<std::unique_ptr<BTNode>> children;
+    children.push_back(std::make_unique<FollowPathAction>());
+    children.push_back(std::make_unique<ModifyTargetZAction>(150.0f));
+    children.push_back(createMovementNode(context));
+    return std::make_unique<SequenceNode>(std::move(children));
+}
+
+std::unique_ptr<BTNode> OreGrindModule::createGatherTargetBranch(BTContext& context)
+{
+    std::vector<std::unique_ptr<BTNode>> children;
+
+    // Шаг 1: Подлететь к цели (если еще не там)
+    children.push_back(createMovementNode(context));
+    // Шаг 2: Убедиться, что мы вплотную
+    children.push_back(std::make_unique<IsInRangeCondition>(2.5f));
+
+    // --- НОВОЕ КЛЮЧЕВОЕ УСЛОВИЕ ---
+    // Шаг 3: Продолжать, только если мы НЕ кастуем.
+    // IsCastingCondition вернет Success, если мы кастуем -> Inverter превратит это в Failure.
+    // IsCastingCondition вернет Failure, если мы НЕ кастуем -> Inverter превратит это в Success.
+    children.push_back(std::make_unique<InverterNode>(std::make_unique<IsCastingCondition>(UnitSource::Self)));
+
+    // Шаг 4: Отправить команду на взаимодействие (выполнится, только если прошли Шаг 3)
+    children.push_back(std::make_unique<InteractWithTargetAction>());
+    children.push_back(std::make_unique<WaitAction>(1250.0f));
+    // Шаг 5: Ждать, пока каст не ЗАКОНЧИТСЯ
+    children.push_back(std::make_unique<WhileSuccessDecorator>(std::make_unique<IsCastingCondition>(UnitSource::Self)));
+
+    // Шаг 7: Очистить цель
+    children.push_back(std::make_unique<ClearTargetAction>());
+    // Шаг 8: Пауза, чтобы руда-призрак исчезла
+    children.push_back(std::make_unique<WaitAction>(250.0f));
+
+    return std::make_unique<SequenceNode>(std::move(children));
+}
+
+std::unique_ptr<BTNode> OreGrindModule::createFullGatherCycleBranch(BTContext& context)
+{
+    std::vector<std::unique_ptr<BTNode>> selectorChildren;
+    {
+        std::vector<std::unique_ptr<BTNode>> sequenceChildren;
+        sequenceChildren.push_back(std::make_unique<HasTargetCondition>());
+        // ИСПРАВЛЕНО: Правильно вызываем статический метод
+        sequenceChildren.push_back(OreGrindModule::createGatherTargetBranch(context));
+        selectorChildren.push_back(std::make_unique<SequenceNode>(std::move(sequenceChildren)));
+    }
+    selectorChildren.push_back(
+        std::make_unique<FindObjectByIdAction>(context.settings.gatheringSettings.nodeIdsToGather));
+    return std::make_unique<SelectorNode>(std::move(selectorChildren));
+}
+
+std::unique_ptr<BTNode> OreGrindModule::createPanicBranch(BTContext& context)
+{
+    std::vector<std::unique_ptr<BTNode>> children;
+    children.push_back(std::make_unique<IsPlayersNearbyCondition>());
+    // ИСПРАВЛЕНО: Правильно вызываем статический метод
+    children.push_back(OreGrindModule::createFollowPathBranch(context));
+    return std::make_unique<SequenceNode>(std::move(children));
+}
+
+std::unique_ptr<BTNode> OreGrindModule::createWorkLogicBranch(BTContext& context)
+{
+    std::vector<std::unique_ptr<BTNode>> children;
+    children.push_back(RetributionBuilder::buildCombatTree(context));
+    // ИСПРАВЛЕНО: Правильно вызываем статический метод
+    children.push_back(OreGrindModule::createFullGatherCycleBranch(context));
+    // ИСПРАВЛЕНО: Правильно вызываем статический метод
+    children.push_back(OreGrindModule::createFollowPathBranch(context));
+    return std::make_unique<SelectorNode>(std::move(children));
+}
+
+// --- ГЛАВНЫЙ МЕТОД BUILD ---
 std::unique_ptr<BTNode> OreGrindModule::build(BTContext& context)
 {
-    // --- Ветка №1 (Приоритет ВЫСОКИЙ): Попытка найти и собрать руду ---
-    std::vector<std::unique_ptr<BTNode>> attemptGatherBranchChildren;
-
-    // 1. Найти руду (которая не в черном списке)
-    attemptGatherBranchChildren.push_back(
-        std::make_unique<FindObjectByIdAction>(context.settings.gatheringSettings.nodeIdsToGather));
-
-    // 2. "Развилка": что делать с найденной целью? Используем Selector.
-    {
-        std::vector<std::unique_ptr<BTNode>> choiceChildren;
-        // 2a. (Приоритет ВЫШЕ): Если путь свободен, летим собирать.
-        {
-            std::vector<std::unique_ptr<BTNode>> gatherIfSafeChildren;
-            // Условие: рядом НЕТ игроков. Inverter превращает Success от IsPlayersNearby в Failure и наоборот.
-            gatherIfSafeChildren.push_back(
-                std::make_unique<InverterNode>(std::make_unique<IsPlayersNearbyCondition>()));
-            // Действие: Двигаться к цели
-            gatherIfSafeChildren.push_back(createMovementNode(context));
-            // TODO: Действие: Собрать руду
-            // gatherIfSafeChildren.push_back(std::make_unique<GatherAction>());
-            choiceChildren.push_back(std::make_unique<SequenceNode>(std::move(gatherIfSafeChildren)));
-        }
-
-        // 2b. (Приоритет НИЖЕ): Если предыдущая ветка не сработала (значит, игроки ЕСТЬ),
-        //     то заносим цель в черный список. Этот узел вернет Failure, что заставит
-        //     провалиться всю ветку attemptGatherBranch.
-        choiceChildren.push_back(std::make_unique<BlacklistTargetAction>(120));
-
-        attemptGatherBranchChildren.push_back(std::make_unique<SelectorNode>(std::move(choiceChildren)));
-    }
-    auto attemptGatherBranch = std::make_unique<SequenceNode>(std::move(attemptGatherBranchChildren));
-
-    // --- Ветка №2 (Приоритет НИЗКИЙ): Движение по маршруту ПОД ЗЕМЛЕЙ ---
-    // Выполняется, если attemptGatherBranch вернула Failure.
-    std::vector<std::unique_ptr<BTNode>> followPathChildren;
-    followPathChildren.push_back(std::make_unique<FollowPathAction>());
-    followPathChildren.push_back(std::make_unique<ModifyTargetZAction>(150.0f));
-    followPathChildren.push_back(createMovementNode(context));
-    auto followPathBranch = std::make_unique<SequenceNode>(std::move(followPathChildren));
-
-    // "Менеджер-Прагматик" (Selector), который управляет ветками
-    std::vector<std::unique_ptr<BTNode>> mainLogicChildren;
-
-    // ПЕРЕД всеми остальными задачами мы добавляем нашу боевую логику.
-    mainLogicChildren.push_back(RetributionBuilder::buildCombatTree(context));
-    mainLogicChildren.push_back(std::move(attemptGatherBranch));  // Сначала попробуй найти и собрать
-    mainLogicChildren.push_back(std::move(followPathBranch));     // Если не вышло - лети к следующей точке
-    auto mainLogic = std::make_unique<SelectorNode>(std::move(mainLogicChildren));
-
-    // Корневой узел
     std::vector<std::unique_ptr<BTNode>> rootChildren;
     rootChildren.push_back(std::make_unique<LoadGatheringProfileAction>());
-    rootChildren.push_back(std::move(mainLogic));
-
+    {
+        std::vector<std::unique_ptr<BTNode>> mainSelectorChildren;
+        // ИСПРАВЛЕНО: Правильно вызываем статический метод
+        mainSelectorChildren.push_back(OreGrindModule::createPanicBranch(context));
+        // ИСПРАВЛЕНО: Правильно вызываем статический метод
+        mainSelectorChildren.push_back(OreGrindModule::createWorkLogicBranch(context));
+        rootChildren.push_back(std::make_unique<SelectorNode>(std::move(mainSelectorChildren)));
+    }
     return std::make_unique<SequenceNode>(std::move(rootChildren));
 }

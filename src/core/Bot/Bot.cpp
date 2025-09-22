@@ -13,6 +13,7 @@
 #include "core/Bot/Modules/OreGrindModule.h"
 
 Q_LOGGING_CATEGORY(logBot, "mdbot.bot")
+Q_LOGGING_CATEGORY(logBT, "mdbot.bot.bt")
 
 Bot::Bot(qint64 processId, const QString& processName, const QString& computerNameToSet, QObject* parent)
     : QObject(parent),
@@ -100,6 +101,7 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
             m_gameObjectManager = new GameObjectManager(this);
             m_movementManager = new MovementManager(&m_sharedMemory, &m_memoryManager, m_character, this);
             m_combatManager = new CombatManager(&m_sharedMemory, this);
+            m_interactionManager = new InteractionManager(&m_sharedMemory, this);
 
             // --- НОВАЯ ЛОГИКА С ПОТОКОМ И ТАЙМЕРОМ ---
             m_thread = new QThread(this);         // Создаем поток
@@ -149,6 +151,7 @@ Bot::~Bot()
         delete m_character;
         delete m_movementManager;
         delete m_combatManager;
+        delete m_interactionManager;
 
         m_sharedMemory.close();
         qCInfo(logBot) << "Shared memory closed.";
@@ -188,6 +191,11 @@ CombatManager* Bot::combatManager() const
     return m_combatManager;
 }
 
+InteractionManager* Bot::interactionManager() const
+{
+    return m_interactionManager;
+}
+
 void Bot::start(const BotStartSettings& settings, ProfileManager* profileManager)  // <-- ИЗМЕНЕНО
 {
     if (m_running)
@@ -206,6 +214,7 @@ void Bot::start(const BotStartSettings& settings, ProfileManager* profileManager
         m_btContext->gameObjectManager = m_gameObjectManager;
         m_btContext->movementManager = m_movementManager;
         m_btContext->combatManager = m_combatManager;
+        m_btContext->interactionManager = m_interactionManager;
     }
 
     // --- ДОБАВЛЕНО: Делаем ProfileManager доступным для Дерева Поведения ---

@@ -63,6 +63,49 @@ struct AuraSlot
 };
 
 /**
+ * @struct UnitProperties
+ * @brief Хранит основные динамические характеристики и состояния юнита.
+ * @details Доступ к этому блоку данных осуществляется через указатель pUnitProperties
+ *          в объекте Unit. Это позволяет унифицировать доступ к состоянию как для
+ *          игроков (Player), так и для NPC (Unit), несмотря на различия в их
+ *          базовых структурах памяти.
+ */
+struct UnitProperties  // sizeof=0xD8
+{
+    char _pad0[48];
+    unsigned int targetGuid_low;
+    unsigned int targetGuid_high;
+    char _pad_to_health[16];
+    unsigned int currentHealth;
+    unsigned int currentMana;
+    char _pad1[24];
+    unsigned int maxHealth;
+    unsigned int maxMana;
+    char _pad2[80];
+    unsigned int level;
+    char _pad3[16];
+
+    /**
+     * @brief [смещение 0xD4] Битовое поле, хранящее различные состояния юнита.
+     * @details Каждый бит отвечает за определенный флаг (в бою, на маунте, мертв и т.д.).
+     *          Для проверки состояния используется побитовая операция 'И' (&).
+     *          Если результат не равен нулю, флаг установлен.
+     *
+     *          Ключевой флаг:
+     *          - **Флаг боя:** находится в 19-м бите (маска 0x80000).
+     *
+     * @code
+     * // Пример проверки, находится ли юнит в бою:
+     * if (pUnit->pUnitProperties->flags & 0x80000)
+     * {
+     *     // Юнит в бою
+     * }
+     * @endcode
+     */
+    unsigned int flags;
+};
+
+/**
  * @struct Unit
  * @brief Расширяет WorldObject, добавляя поля для "живых" существ (NPC, мобы, игроки).
  * @details Наследуется от WorldObject и использует "заполнители" (padding) для
@@ -70,45 +113,25 @@ struct AuraSlot
  */
 struct Unit : public WorldObject
 {
-    // --- Начало: Блок CMovement (детализация твоего старого паддинга) ---
-    // WorldObject заканчивается на 0xD0.
-    char _pad_after_WoWObject[0x8];    // Доводит до 0xD8
+    UnitProperties* pUnitProperties;
+    char _pad_after_WoWObject[0x4];    // Доводит до 0xD8
     CMovement* pMovement;              // 0xD8
     char _pad_before_Movement[0x6AC];  // Доводит до 0x788
     CMovement m_movement;              // 0x788, содержит 'position' по смещению +0x10
+    char padding_to_targetGuid[516];
+    uint8_t castID;
+    char padding_A5D[15];
+    uint32_t castSpellId;
+    uint32_t castTargetGuid_low;
+    uint32_t castTargetGuid_high;
+    uint32_t castStartTime;
+    uint32_t castEndTime;
+    char padding_A80[464];
 
-    // --- Середина: Блок Аур (наши новые находки) ---
-    // m_movement заканчивается на 0x788 + 0xD0 = 0x858
-    char _pad_before_Auras[0x3F8];  // Доводит до 0xC50
-    AuraSlot m_auras[16];           // 0xC50
-    int32_t m_auraCount_or_Flag;    // 0xDD0
-    char _pad3[0x10C];              // Смещение 0xDD4
-    int32_t m_auras_capacity;       // Смещение 0xEE0
-
-    char _pad4[0xAD4];  // Смещение 0xEE4
-    /// @brief [смещение 0x19B8] Текущее здоровье.
-    uint32_t health;
-
-    /// @brief [смещение 0x19BC] Текущая мана/энергия/ярость.
-    uint32_t mana;
-
-    // 3. Заполнитель от конца mana (0x19BC + 4 = 0x19C0) до поля maxHealth (0x19D8)
-    char _pad_to_maxHealth[0x19D8 - (0x19BC + sizeof(mana))];
-
-    /// @brief [смещение 0x19D8] Максимальное здоровье.
-    uint32_t maxHealth;
-
-    /// @brief [смещение 0x19DC] Максимальная мана/энергия/ярость.
-    uint32_t maxMana;
-
-    // 4. Заполнитель от конца maxMana (0x19DC + 4 = 0x19E0) до поля level (0x1A30)
-    char _pad_to_level[0x1A30 - (0x19DC + sizeof(maxMana))];
-
-    /// @brief [смещение 0x1A30] Уровень юнита.
-    uint32_t level;
-
-    // Мы не знаем и не объявляем полный размер Unit, так как нам это не нужно.
-    // Мы просто объявили "скелет" из тех полей, которые нам интересны.
+    AuraSlot m_auras[16];         // 0xC50
+    int32_t m_auraCount_or_Flag;  // 0xDD0
+    char _pad3[0x10C];            // Смещение 0xDD4
+    int32_t m_auras_capacity;     // Смещение 0xEE0
 };
 
 #pragma pack(pop)

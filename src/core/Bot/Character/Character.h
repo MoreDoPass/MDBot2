@@ -101,6 +101,20 @@ class Character : public QObject
      */
     const CharacterData& data() const;
 
+    // --- НОВЫЕ МЕТОДЫ-ГЕТТЕРЫ ДЛЯ КУЛДАУНОВ ---
+    /**
+     * @brief Проверяет, активен ли в данный момент боевой ГКД.
+     * @return true, если ГКД активен.
+     */
+    bool isGcdActive() const;
+
+    /**
+     * @brief Проверяет, находится ли указанное заклинание на кулдауне.
+     * @param spellId ID заклинания для проверки.
+     * @return true, если заклинание на кулдауне.
+     */
+    bool isSpellOnCooldown(uint32_t spellId) const;
+
    signals:
     /**
      * @brief Сигнал испускается, когда данные персонажа изменяются.
@@ -111,4 +125,10 @@ class Character : public QObject
    private:
     /// @brief Внутренний кэш данных персонажа. Является копией PlayerData из Shared Memory.
     CharacterData m_data;
+
+    // Кэш состояния боевого ГКД.
+    bool m_isGcdActive = false;
+
+    // Кэш ID активных кулдаунов заклинаний для быстрого поиска.
+    QSet<uint32_t> m_activeCooldownIds;
 };
