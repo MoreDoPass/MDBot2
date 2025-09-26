@@ -9,31 +9,29 @@ HasBuffCondition::HasBuffCondition(UnitSource target, int auraId, bool mustBePre
 
 NodeStatus HasBuffCondition::tick(BTContext& context)
 {
-    // Шаг 1: Определяем GUID юнита, которого нужно проверить.
-    uint64_t guidToCheck = 0;
+    bool auraIsPresent = false;  // Начальное состояние - ауры нет
+
+    // === НОВАЯ, ПРАВИЛЬНАЯ ЛОГИКА ===
     if (m_target == UnitSource::Self)
     {
-        guidToCheck = context.character->getGuid();
+        // Если проверяем СЕБЯ, то используем наш новый "живой" геттер из Character!
+        auraIsPresent = context.character->hasAura(m_auraId);
     }
-    else  // m_target == BuffTarget::CurrentTarget
+    else  // m_target == UnitSource::CurrentTarget
     {
-        guidToCheck = context.currentTargetGuid;
+        // А если проверяем ЦЕЛЬ, то идем в GameObjectManager, как и раньше.
+        uint64_t targetGuid = context.currentTargetGuid;
+        if (targetGuid != 0)
+        {
+            auraIsPresent = context.gameObjectManager->unitHasAura(targetGuid, m_auraId);
+        }
     }
 
-    // Если по какой-то причине мы не знаем, кого проверять, условие провалено.
-    if (guidToCheck == 0)
-    {
-        return NodeStatus::Failure;
-    }
-
-    // Шаг 2: Используем наш GameObjectManager ("Глаза"), чтобы проверить наличие ауры.
-    bool auraIsPresent = context.gameObjectManager->unitHasAura(guidToCheck, m_auraId);
-
-    // Шаг 3: Сравниваем фактическое наличие ауры с тем, что нам было нужно.
+    // Логика сравнения остается той же самой
     if (auraIsPresent == m_mustBePresent)
     {
-        return NodeStatus::Success;  // Условие выполнено
+        return NodeStatus::Success;
     }
 
-    return NodeStatus::Failure;  // Условие не выполнено
+    return NodeStatus::Failure;
 }

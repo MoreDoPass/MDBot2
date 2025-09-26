@@ -54,7 +54,7 @@ NodeStatus MoveToTargetAction::tick(BTContext& context)
         return NodeStatus::Failure;
     }
 
-    if (character->GetPosition().DistanceSq(targetPosition) < 25.0f)
+    if (character->getPosition().DistanceSq(targetPosition) < 25.0f)
     {
         qCInfo(logMoveToAction) << "Already at target position. Success.";
         context.currentTargetPosition = Vector3();

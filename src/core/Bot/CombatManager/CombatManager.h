@@ -17,6 +17,14 @@ class CombatManager : public QObject
     // Возвращает true, если команда успешно отправлена.
     bool castSpellOnTarget(int spellId, uint64_t targetGUID);
 
+    /**
+     * @brief Отправляет в DLL команду на начало автоатаки по указанной цели.
+     * @details Является "действием" для дерева поведения.
+     * @param targetGUID 64-битный GUID цели, которую нужно атаковать.
+     * @return true, если команда была успешно отправлена, false - если DLL занята.
+     */
+    bool startAutoAttack(uint64_t targetGUID);
+
    private:
     // Указатель на общую память, через которую мы будем общаться с DLL
     SharedMemoryManager* m_sharedMemory;

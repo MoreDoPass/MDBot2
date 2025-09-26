@@ -50,3 +50,43 @@ bool CombatManager::castSpellOnTarget(int spellId, uint64_t targetGUID)
 
     return true;
 }
+
+bool CombatManager::startAutoAttack(uint64_t targetGUID)
+{
+    if (!m_sharedMemory) return false;
+
+    SharedData* data = m_sharedMemory->getMemoryPtr();
+    if (!data)
+    {
+        qCCritical(logCombatManager) << "Cannot start auto-attack: Failed to get pointer to shared memory.";
+        return false;
+    }
+
+    // --- ЛОГИКА ОТПРАВКИ КОМАНДЫ ---
+
+    // 1. Проверяем, свободен ли "агент" (DLL).
+    if (data->commandToDll.status != CommandStatus::None)
+    {
+        // Это не ошибка, а нормальная ситуация, поэтому можно использовать Debug-уровень или вообще убрать лог
+        qCDebug(logCombatManager) << "Cannot start auto-attack: DLL is busy with another command.";
+        return false;
+    }
+
+    // 2. Проверяем, что нам передали валидный GUID цели
+    if (targetGUID == 0)
+    {
+        qCWarning(logCombatManager) << "Cannot start auto-attack: Target GUID is zero.";
+        return false;
+    }
+
+    // 3. Заполняем "бланк заказа" для автоатаки
+    data->commandToDll.type = ClientCommandType::StartAutoAttack;
+    data->commandToDll.targetGuid = targetGUID;
+    data->commandToDll.spellId = 0;  // На всякий случай обнуляем неиспользуемые поля
+    data->commandToDll.position = {};
+    data->commandToDll.status = CommandStatus::Pending;  // Отмечаем команду как готовую к исполнению
+
+    qCInfo(logCombatManager) << "StartAutoAttack command sent. TargetGUID:" << Qt::hex << targetGUID;
+
+    return true;
+}

@@ -30,7 +30,7 @@ NodeStatus FindObjectByIdAction::tick(BTContext& context)
     float minDistanceSq = 999999.0f;
     const QDateTime currentTime = QDateTime::currentDateTime();
 
-    const Vector3 myPosition = context.character->GetPosition();
+    const Vector3 myPosition = context.character->getPosition();
 
     for (const GameObjectInfo* objInfo : allObjects)
     {

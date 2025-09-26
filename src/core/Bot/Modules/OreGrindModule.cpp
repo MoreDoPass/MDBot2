@@ -32,7 +32,7 @@ static std::unique_ptr<BTNode> createMovementNode(BTContext& context)
 
     if (movementSettings.navigationType == MovementSettings::NavigationType::Teleport_Only)
     {
-        return std::make_unique<TeleportToTargetAction>();
+        return std::make_unique<TeleportToTargetAction>(3.0f);
     }
     if (movementSettings.navigationType == MovementSettings::NavigationType::CtM_Only)
     {
@@ -44,7 +44,7 @@ static std::unique_ptr<BTNode> createMovementNode(BTContext& context)
         {
             std::vector<std::unique_ptr<BTNode>> children;
             children.push_back(std::make_unique<InverterNode>(std::make_unique<IsPlayersNearbyCondition>()));
-            children.push_back(std::make_unique<TeleportToTargetAction>());
+            children.push_back(std::make_unique<TeleportToTargetAction>(3.0f));
             selectorChildren.push_back(std::make_unique<SequenceNode>(std::move(children)));
         }
         selectorChildren.push_back(std::make_unique<MoveToTargetAction>());
@@ -72,7 +72,7 @@ std::unique_ptr<BTNode> OreGrindModule::createGatherTargetBranch(BTContext& cont
     // Шаг 1: Подлететь к цели (если еще не там)
     children.push_back(createMovementNode(context));
     // Шаг 2: Убедиться, что мы вплотную
-    children.push_back(std::make_unique<IsInRangeCondition>(2.5f));
+    children.push_back(std::make_unique<IsInRangeCondition>(4.0f));
 
     // --- НОВОЕ КЛЮЧЕВОЕ УСЛОВИЕ ---
     // Шаг 3: Продолжать, только если мы НЕ кастуем.
@@ -99,7 +99,7 @@ std::unique_ptr<BTNode> OreGrindModule::createFullGatherCycleBranch(BTContext& c
     std::vector<std::unique_ptr<BTNode>> selectorChildren;
     {
         std::vector<std::unique_ptr<BTNode>> sequenceChildren;
-        sequenceChildren.push_back(std::make_unique<HasTargetCondition>());
+        sequenceChildren.push_back(std::make_unique<HasTargetCondition>(GameObjectType::GameObject));
         // ИСПРАВЛЕНО: Правильно вызываем статический метод
         sequenceChildren.push_back(OreGrindModule::createGatherTargetBranch(context));
         selectorChildren.push_back(std::make_unique<SequenceNode>(std::move(sequenceChildren)));

@@ -1,10 +1,12 @@
 #include "MovementManager.h"
 #include "core/Bot/Character/Character.h"
 #include "core/MemoryManager/MemoryManager.h"
+#include "core/Bot/GameObjectManager/GameObjectManager.h"
 #include "core/Bot/Movement/Teleport/TeleportExecutor.h"
 #include "core/Bot/Movement/Teleport/TeleportStepFlagHook.h"
 #include <QLoggingCategory>
 #include <optional>  // Для работы с std::optional
+#include <cmath>
 
 Q_LOGGING_CATEGORY(logMovementManager, "mdbot.movementmanager")
 
@@ -19,8 +21,12 @@ constexpr uintptr_t HookAddress = 0x7413F0;
  * @brief Конструктор. Теперь принимает SharedMemoryManager.
  */
 MovementManager::MovementManager(SharedMemoryManager* sharedMemory, MemoryManager* memoryManager, Character* character,
-                                 QObject* parent)
-    : QObject(parent), m_sharedMemory(sharedMemory), m_memoryManager(memoryManager), m_character(character)
+                                 GameObjectManager* gom, QObject* parent)
+    : QObject(parent),
+      m_sharedMemory(sharedMemory),
+      m_memoryManager(memoryManager),
+      m_character(character),
+      m_gameObjectManager(gom)  // <-- Сохраняем указатель в наше новое поле
 {
     if (!m_sharedMemory || !m_memoryManager || !m_character)
     {
@@ -213,27 +219,38 @@ void MovementManager::updatePathExecution()
 
 bool MovementManager::faceTarget(uint64_t targetGuid)
 {
+    // 1. Проверяем, можем ли мы вообще отправить команду
     if (!m_sharedMemory) return false;
-
     SharedData* data = m_sharedMemory->getMemoryPtr();
-    if (!data)
+    if (!data || data->commandToDll.status != CommandStatus::None)
     {
-        qCCritical(logMovementManager) << "Cannot face target: Failed to get pointer to shared memory.";
+        qCWarning(logMovementManager) << "Cannot face target: DLL is busy or SharedMemory is unavailable.";
         return false;
     }
 
-    if (data->commandToDll.status != CommandStatus::None)
+    // 2. Получаем "живые" данные о позициях
+    const Vector3 selfPos = m_character->getPosition();
+    const GameObjectInfo* targetInfo = m_gameObjectManager->getObjectByGuid(targetGuid);
+
+    if (!targetInfo)
     {
-        qCWarning(logMovementManager) << "Cannot face target: DLL is busy with another command.";
+        qCWarning(logMovementManager) << "Cannot face target: Target GUID" << targetGuid << "not found.";
         return false;
     }
+    const Vector3 targetPos = targetInfo->position;
 
-    // Формируем и отправляем команду
-    data->commandToDll.type = ClientCommandType::FaceTarget;
-    data->commandToDll.targetGuid = targetGuid;  // <-- Используем GUID
+    // 3. === ГЛАВНАЯ МАТЕМАТИКА ===
+    // Вычисляем угол между двумя точками на плоскости XY.
+    // atan2 - стандартная функция, которая делает именно это. Она возвращает угол в радианах.
+    float angleToTarget = atan2(targetPos.y - selfPos.y, targetPos.x - selfPos.x);
+
+    // 4. Формируем и отправляем НОВУЮ команду
+    data->commandToDll.type = ClientCommandType::SetOrientation;
+    data->commandToDll.orientation = angleToTarget;  // <-- Кладем вычисленный угол в новое поле
     data->commandToDll.status = CommandStatus::Pending;
 
-    qCInfo(logMovementManager) << "FaceTarget command sent to DLL for GUID:" << Qt::hex << targetGuid;
+    qCInfo(logMovementManager) << "SetOrientation command sent to DLL for target" << targetGuid
+                               << "with angle:" << angleToTarget;
 
     return true;
 }

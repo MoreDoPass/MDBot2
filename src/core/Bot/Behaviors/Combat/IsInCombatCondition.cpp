@@ -8,32 +8,29 @@ IsInCombatCondition::IsInCombatCondition(UnitSource source, bool mustBeInCombat)
 
 NodeStatus IsInCombatCondition::tick(BTContext& context)
 {
-    // Шаг 1: Определяем GUID юнита, которого нужно проверить.
-    uint64_t guidToCheck = 0;
+    bool isInCombat = false;  // Начальное состояние - не в бою
+
+    // === НОВАЯ, ПРАВИЛЬНАЯ ЛОГИКА ===
     if (m_source == UnitSource::Self)
     {
-        guidToCheck = context.character->getGuid();
+        // Если проверяем СЕБЯ, то используем наш новый "живой" геттер из Character!
+        isInCombat = context.character->isInCombat();
     }
     else  // m_source == UnitSource::CurrentTarget
     {
-        guidToCheck = context.currentTargetGuid;
+        // А если проверяем ЦЕЛЬ, то идем в GameObjectManager.
+        uint64_t targetGuid = context.currentTargetGuid;
+        if (targetGuid != 0)
+        {
+            isInCombat = context.gameObjectManager->isUnitInCombat(targetGuid);
+        }
     }
 
-    if (guidToCheck == 0)
-    {
-        return NodeStatus::Failure;  // Некого проверять
-    }
-
-    // Шаг 2: Используем наш новый метод в GameObjectManager!
-    bool isInCombat = context.gameObjectManager->isUnitInCombat(guidToCheck);
-
-    // Шаг 3: Сравниваем фактическое состояние с тем, что нам было нужно.
-    // Если (мы в бою И нам нужно быть в бою) -> true
-    // Если (мы НЕ в бою И нам НЕ нужно быть в бою) -> true
+    // Логика сравнения остается той же
     if (isInCombat == m_mustBeInCombat)
     {
-        return NodeStatus::Success;  // Условие выполнено
+        return NodeStatus::Success;
     }
 
-    return NodeStatus::Failure;  // Условие не выполнено
+    return NodeStatus::Failure;
 }

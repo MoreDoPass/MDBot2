@@ -11,6 +11,7 @@
 
 // Прямые объявления, чтобы не подключать тяжелые заголовки в .h
 class Character;
+class GameObjectManager;
 class MemoryManager;
 class TeleportExecutor;
 class TeleportStepFlagHook;
@@ -31,8 +32,9 @@ class MovementManager : public QObject
      * @param character Указатель на объект персонажа.
      * @param parent Родительский QObject.
      */
-    explicit MovementManager(SharedMemoryManager* sharedMemory, MemoryManager* memoryManager, Character* character,
-                             QObject* parent = nullptr);
+    MovementManager(SharedMemoryManager* sharedMemory, MemoryManager* memoryManager, Character* character,
+                    GameObjectManager* gom,  // <-- ДОБАВЛЯЕМ НОВЫЙ АРГУМЕНТ
+                    QObject* parent = nullptr);
     ~MovementManager();
 
     /**
@@ -90,6 +92,7 @@ class MovementManager : public QObject
     SharedMemoryManager* m_sharedMemory;  ///< Указатель на менеджер общей памяти (для CtM).
     MemoryManager* m_memoryManager;       ///< Указатель на менеджер памяти (для телепорта).
     Character* m_character;               ///< Указатель на объект персонажа.
+    GameObjectManager* m_gameObjectManager;
 
     // --- ПОЛЯ ДЛЯ СЛЕДОВАНИЯ ПО ПУТИ ---
     MovementSettings m_settings;

@@ -9,19 +9,6 @@ FindAggressorAction::FindAggressorAction()
 
 NodeStatus FindAggressorAction::tick(BTContext& context)
 {
-    // --- Шаг 0: Проверка, а не нужно ли нам вообще искать цель ---
-    // Если у нас уже есть цель, и она все еще жива и враждебна,
-    // то нет смысла искать новую. Это предотвращает смену цели в середине боя.
-    if (context.currentTargetGuid != 0)
-    {
-        const GameObjectInfo* currentTarget = context.gameObjectManager->getObjectByGuid(context.currentTargetGuid);
-        if (currentTarget && currentTarget->health > 0)
-        {
-            // У нас уже есть живая цель, считаем задачу выполненной.
-            return NodeStatus::Success;
-        }
-    }
-
     // --- Шаг 1: Получаем наш собственный GUID ---
     const uint64_t myGuid = context.character->getGuid();
     if (myGuid == 0)
@@ -37,7 +24,7 @@ NodeStatus FindAggressorAction::tick(BTContext& context)
     for (const GameObjectInfo* unit : visibleUnits)
     {
         // Пропускаем себя и мертвых юнитов
-        if (unit->guid == myGuid || unit->health == 0)
+        if (unit->guid == myGuid || unit->Health == 0)
         {
             continue;
         }

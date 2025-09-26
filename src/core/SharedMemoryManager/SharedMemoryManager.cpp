@@ -111,3 +111,8 @@ SharedData* SharedMemoryManager::getMemoryPtr()
 {
     return static_cast<SharedData*>(m_pSharedMem);
 }
+
+const SharedData* SharedMemoryManager::getConstMemoryPtr() const
+{
+    return static_cast<const SharedData*>(m_pSharedMem);
+}

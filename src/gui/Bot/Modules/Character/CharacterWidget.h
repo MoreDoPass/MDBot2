@@ -1,21 +1,20 @@
 #pragma once
 #include <QWidget>
 #include <QLoggingCategory>
-#include "core/Bot/Character/Character.h"  // Убедись, что путь правильный
+#include "core/Bot/Character/Character.h"  // Нужен для указателя m_character
 
-// Прямые объявления для уменьшения зависимостей
+// Прямые объявления, чтобы не подключать лишние заголовки .h файлов
 class QLabel;
 class QPushButton;
-class QCheckBox;
-class QTimer;
 
 Q_DECLARE_LOGGING_CATEGORY(logCharacterWidget)
 
 /**
  * @class CharacterWidget
- * @brief Виджет для отображения информации о персонаже.
- * @details Этот виджет подписывается на сигнал dataChanged от объекта Character
- *          и асинхронно обновляет отображаемую информацию.
+ * @brief Виджет для отображения информации о персонаже по требованию.
+ * @details Этот виджет предоставляет кнопку "Обновить", при нажатии на которую
+ *          он обращается к "живым" данным объекта Character и отображает их.
+ *          Он больше не использует сигналы или таймеры для автоматического обновления.
  */
 class CharacterWidget : public QWidget
 {
@@ -32,17 +31,16 @@ class CharacterWidget : public QWidget
 
    private slots:
     /**
-     * @brief Слот, вызываемый при изменении данных персонажа.
-     * @param data Новые данные персонажа.
+     * @brief Слот, вызываемый при нажатии на кнопку "Обновить".
+     * @details Запускает процесс обновления всех элементов интерфейса.
      */
-    void onCharacterDataChanged(const CharacterData& data);
+    void onRefreshClicked();
 
    private:
     /**
-     * @brief Обновляет все элементы интерфейса на основе предоставленных данных.
-     * @param data Актуальные данные персонажа.
+     * @brief Обновляет все элементы интерфейса на основе "живых" данных из Character.
      */
-    void updateUi(const CharacterData& data);
+    void updateUi();
 
     /**
      * @brief Логирует ошибку и показывает ее пользователю.
@@ -50,19 +48,16 @@ class CharacterWidget : public QWidget
      */
     void logError(const QString& message);
 
-    // --- Поля, которые были удалены ---
-    // QPushButton* m_updateButton;
-    // QCheckBox* m_autoUpdateCheck;
-    // QTimer* m_autoUpdateTimer;
-    // MovementManager* m_movementManager;
+    // --- Поля виджета ---
+    Character* m_character;  // Указатель на наш источник данных
 
-    // --- Поля, которые остались ---
-    Character* m_character;
-    QLabel* m_nameLabel;
+    // Элементы GUI
+    QLabel* m_guidLabel;
     QLabel* m_levelLabel;
     QLabel* m_healthLabel;
     QLabel* m_manaLabel;
     QLabel* m_positionLabel;
-    QLabel* m_mapIdLabel;
-    QLabel* m_stateLabel;
+    QLabel* m_aurasLabel;          // <-- Новое поле для отображения аур
+    QLabel* m_cooldownsLabel;      // <-- Новое поле для отображения кулдаунов
+    QPushButton* m_refreshButton;  // <-- Наша новая кнопка
 };

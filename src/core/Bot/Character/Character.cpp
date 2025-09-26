@@ -1,149 +1,219 @@
 #include "Character.h"
 #include <QLoggingCategory>
-#include <cstring>  // для memcmp
 
 Q_LOGGING_CATEGORY(characterLog, "mdbot.character")
 
-/**
- * @brief Конструктор.
- * @details Логика по установке хуков и выделению памяти полностью удалена.
- *          Класс создается в "чистом" виде.
- */
-Character::Character(QObject* parent) : QObject(parent)
+Character::Character(const SharedData* sharedData, QObject* parent) : QObject(parent), m_sharedData(sharedData)
 {
-    // Инициализируем m_data нулями, чтобы избежать мусора при первом сравнении.
-    memset(&m_data, 0, sizeof(CharacterData));
-    qCInfo(characterLog) << "Character object created (Shared Memory mode).";
+    qCInfo(characterLog) << "Character object created (Direct Memory Access mode).";
 }
 
-/**
- * @brief Деструктор.
- * @details Логика по снятию хуков и освобождению памяти полностью удалена.
- */
 Character::~Character()
 {
     qCInfo(characterLog) << "Character object destroyed.";
 }
 
-/**
- * @brief Обновляет внутреннее состояние персонажа на основе данных, полученных от DLL.
- * @details Перед обновлением и отправкой сигнала, метод сравнивает новые данные
- *          со старыми, чтобы избежать лишней работы и спама сигналами/логами.
- * @param newData Структура PlayerData, прочитанная из общей памяти.
- */
-void Character::updateFromSharedMemory(const PlayerData& newData)
+Vector3 Character::getPosition() const
 {
-    // --- Обновляем кэш кулдаунов ---
-    // Эта логика выполняется в каждом тике, чтобы иметь самые свежие данные.
-    m_isGcdActive = newData.isGcdActive;
-
-    m_activeCooldownIds.clear();
-    for (int i = 0; i < newData.activeCooldownCount; ++i)
+    // Паттерн "проверь указатель - верни данные"
+    if (m_sharedData)
     {
-        m_activeCooldownIds.insert(newData.activeCooldowns[i].spellId);
+        return m_sharedData->player.position;
     }
-
-    // Сравниваем только основные данные (ХП, мана, позиция и т.д.),
-    // чтобы не спамить сигнал для GUI, которому кулдауны не важны.
-    if (memcmp(&m_data, &newData, sizeof(CharacterData)) != 0)
-    {
-        m_data = newData;
-        emit dataChanged(m_data);
-
-        qCDebug(characterLog) << "Player data updated: HP:" << m_data.health << "/" << m_data.maxHealth
-                              << "Pos:" << m_data.position.x << m_data.position.y << m_data.position.z
-                              << "GUID:" << Qt::hex << m_data.guid;
-    }
+    return {};  // Возвращаем пустой вектор, если данных нет
 }
 
-/**
- * @brief Получить текущую позицию персонажа.
- * @return Vector3 - Координаты (X, Y, Z).
- */
-Vector3 Character::GetPosition() const
+float Character::getOrientation() const
 {
-    return m_data.position;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.orientation;
+    }
+    return 0.0f;
 }
 
-/**
- * @brief Получить базовый адрес структуры персонажа в памяти игры.
- * @return Адрес в памяти или 0.
- */
 uintptr_t Character::getBaseAddress() const
 {
-    return m_data.baseAddress;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.baseAddress;
+    }
+    return 0;
 }
 
-/**
- * @brief Получить GUID персонажа.
- * @return 64-битный GUID.
- */
 uint64_t Character::getGuid() const
 {
-    return m_data.guid;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.guid;
+    }
+    return 0;
 }
 
-/**
- * @brief Получить уровень персонажа.
- * @return Уровень.
- */
 uint32_t Character::getLevel() const
 {
-    return m_data.level;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.level;
+    }
+    return 0;
 }
 
-/**
- * @brief Получить текущее здоровье персонажа.
- * @return Текущее здоровье.
- */
 uint32_t Character::getHealth() const
 {
-    return m_data.health;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.Health;
+    }
+    return 0;
 }
 
-/**
- * @brief Получить максимальное здоровье персонажа.
- * @return Максимальное здоровье.
- */
 uint32_t Character::getMaxHealth() const
 {
-    return m_data.maxHealth;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.maxHealth;
+    }
+    return 0;
 }
 
-/**
- * @brief Получить текущую ману/энергию/ярость персонажа.
- * @return Текущая мана.
- */
 uint32_t Character::getMana() const
 {
-    return m_data.mana;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.Mana;
+    }
+    return 0;
 }
 
-/**
- * @brief Получить максимальную ману/энергию/ярость персонажа.
- * @return Максимальная мана.
- */
 uint32_t Character::getMaxMana() const
 {
-    return m_data.maxMana;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.maxMana;
+    }
+    return 0;
+}
+
+uint64_t Character::getTargetGuid() const
+{
+    if (m_sharedData)
+    {
+        return m_sharedData->player.targetGuid;
+    }
+    return 0;
 }
 
 bool Character::isGcdActive() const
 {
-    return m_isGcdActive;
+    if (m_sharedData)
+    {
+        return m_sharedData->player.isGcdActive;
+    }
+    return false;
 }
 
 bool Character::isSpellOnCooldown(uint32_t spellId) const
 {
-    // contains() в QSet - это очень быстрая операция.
-    return m_activeCooldownIds.contains(spellId);
+    if (m_sharedData)
+    {
+        // Пробегаемся по "живому" массиву кулдаунов в общей памяти.
+        // Это очень быстро для такого маленького массива.
+        for (int i = 0; i < m_sharedData->player.activeCooldownCount; ++i)
+        {
+            if (m_sharedData->player.activeCooldowns[i].spellId == spellId)
+            {
+                return true;  // Нашли!
+            }
+        }
+    }
+    return false;  // Не нашли или данных нет
 }
 
-/**
- * @brief Получить все данные персонажа одной структурой.
- * @return Константная ссылка на внутреннюю структуру данных.
- */
-const CharacterData& Character::data() const
+bool Character::hasAura(int32_t spellId) const
 {
-    return m_data;
+    if (m_sharedData)
+    {
+        // Точно так же пробегаемся по "живому" массиву аур.
+        for (int i = 0; i < m_sharedData->player.auraCount; ++i)
+        {
+            if (m_sharedData->player.auras[i] == spellId)
+            {
+                return true;  // Нашли!
+            }
+        }
+    }
+    return false;
+}
+
+QVector<int32_t> Character::getAuras() const
+{
+    QVector<int32_t> result;
+    if (m_sharedData)
+    {
+        // Резервируем память для эффективности
+        result.reserve(m_sharedData->player.auraCount);
+        // Просто копируем все ID из "живого" массива в наш результат
+        for (int i = 0; i < m_sharedData->player.auraCount; ++i)
+        {
+            result.append(m_sharedData->player.auras[i]);
+        }
+    }
+    return result;
+}
+
+QVector<uint32_t> Character::getCooldowns() const
+{
+    QVector<uint32_t> result;
+    if (m_sharedData)
+    {
+        result.reserve(m_sharedData->player.activeCooldownCount);
+        // Копируем все ID из "живого" массива кулдаунов
+        for (int i = 0; i < m_sharedData->player.activeCooldownCount; ++i)
+        {
+            result.append(m_sharedData->player.activeCooldowns[i].spellId);
+        }
+    }
+    return result;
+}
+
+bool Character::isCasting() const
+{
+    if (m_sharedData)
+    {
+        // Просто возвращаем флаг, который нам прислала DLL
+        return m_sharedData->player.isCasting;
+    }
+    return false;  // Если данных нет, считаем, что каста нет
+}
+
+uint32_t Character::getCastingSpellId() const
+{
+    if (m_sharedData)
+    {
+        // Возвращаем ID заклинания
+        return m_sharedData->player.castingSpellId;
+    }
+    return 0;  // Если данных нет, возвращаем 0
+}
+
+bool Character::isInCombat() const
+{
+    if (m_sharedData)
+    {
+        // Используем ту же логику, что и в GameObjectManager:
+        // проверяем 19-й бит (маска 0x80000).
+        return (m_sharedData->player.flags & 0x80000) != 0;
+    }
+    return false;
+}
+
+bool Character::isAutoAttacking() const
+{
+    if (m_sharedData)
+    {
+        // Просто проверяем, не равен ли GUID цели автоатаки нулю.
+        return m_sharedData->player.autoAttackTargetGuid != 0;
+    }
+    return false;
 }

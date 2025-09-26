@@ -2,9 +2,11 @@ project(MDBot_Client)
 
 add_library(MDBot_Client SHARED
     DllMain.cpp
+    MainLoop/MainLoopHook.cpp
     Core/Hooking/InlineHook.cpp
     Core/Memory/SharedMemoryConnector.cpp
-    Hooks/GameLoopHook.cpp
+    Managers/GameObjectManager.cpp
+    Managers/CharacterManager/CharacterManager.cpp
     Hooks/VisibleObjectsHook.cpp
     Hooks/CtMEnablerHook.cpp
     Hooks/CharacterHook.cpp

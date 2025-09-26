@@ -1,17 +1,21 @@
 #include <windows.h>
-#include "Hooks/GameLoopHook.h"
+#include "MainLoop/MainLoopHook.h"
 #include "Core/Memory/SharedMemoryConnector.h"
 #include "Hooks/VisibleObjectsHook.h"
 #include "Hooks/CtMEnablerHook.h"
 #include "Hooks/CharacterHook.h"
 #include "shared/Data/SharedData.h"
+#include "Managers/GameObjectManager.h"
+#include "Managers/CharacterManager/CharacterManager.h"
 
 // Глобальный УКАЗАТЕЛЬ на наш хук
-GameLoopHook* g_gameLoopHook = nullptr;
+MainLoopHook* g_mainLoopHook = nullptr;
 VisibleObjectsHook* g_visibleObjectsHook = nullptr;
 CtMEnablerHook* g_ctmEnablerHook = nullptr;
 CharacterHook* g_characterHook = nullptr;
 SharedMemoryConnector* g_sharedMemory = nullptr;
+GameObjectManager* g_gameObjectManager = nullptr;
+CharacterManager* g_characterManager = nullptr;
 
 /**
  * @brief Поток-инициализатор. Создает коннектор к общей памяти и устанавливает хук.
@@ -55,15 +59,6 @@ DWORD WINAPI Initialize(LPVOID hModule)
     }
     OutputDebugStringA("MDBot_Client: VisibleObjectsHook installed successfully.");
 
-    OutputDebugStringA("MDBot_Client: Installing GameLoopHook (Handler)...");
-    g_gameLoopHook = new GameLoopHook();
-    if (!g_gameLoopHook->install())
-    {
-        OutputDebugStringA("MDBot_Client: ERROR - Failed to install GameLoopHook.");
-        goto cleanup_and_fail;
-    }
-    OutputDebugStringA("MDBot_Client: GameLoopHook installed successfully.");
-
     OutputDebugStringA("MDBot_Client: Installing CharacterHook (Player Ptr)...");
     g_characterHook = new CharacterHook();
     if (!g_characterHook->install())
@@ -88,20 +83,40 @@ DWORD WINAPI Initialize(LPVOID hModule)
         OutputDebugStringA("MDBot_Client: CtMEnablerHook installed successfully.");
     }
 
+    g_gameObjectManager = new GameObjectManager(g_visibleObjectsHook);  // <-- 2. СОЗДАЕМ МЕНЕДЖЕР!
+    OutputDebugStringA("MDBot_Client: GameObjectManager created.");
+
+    g_characterManager = new CharacterManager();  // <-- 2. СОЗДАЕМ МЕНЕДЖЕР!
+    OutputDebugStringA("MDBot_Client: CharacterManager created.");
+
+    OutputDebugStringA("MDBot_Client: Installing MainLoopHook (Handler)...");
+    g_mainLoopHook = new MainLoopHook();  // <-- ИСПРАВЛЕНО
+    if (!g_mainLoopHook->install())
+    {
+        OutputDebugStringA("MDBot_Client: ERROR - Failed to install MainLoopHook.");  // <-- ИСПРАВЛЕНО
+        goto cleanup_and_fail;
+    }
+    OutputDebugStringA("MDBot_Client: MainLoopHook installed successfully.");  // <-- ИСПРАВЛЕНО
+
     OutputDebugStringA("MDBot_Client: Initialization complete. All systems running.");
     return 0;
 
 cleanup_and_fail:
+    if (g_gameObjectManager)  // <-- ДОБАВЛЕНО
+    {
+        delete g_gameObjectManager;
+        g_gameObjectManager = nullptr;
+    }
     // Блок очистки в случае критической ошибки установки хука
     if (g_characterHook)
     {
         delete g_characterHook;
         g_characterHook = nullptr;
     }
-    if (g_gameLoopHook)
+    if (g_mainLoopHook)
     {
-        delete g_gameLoopHook;
-        g_gameLoopHook = nullptr;
+        delete g_mainLoopHook;
+        g_mainLoopHook = nullptr;
     }
     if (g_visibleObjectsHook)
     {
@@ -145,10 +160,15 @@ extern "C"
                     delete g_ctmEnablerHook;
                     g_ctmEnablerHook = nullptr;
                 }
-                if (g_gameLoopHook)
+                if (g_gameObjectManager)  // <-- ДОБАВЛЕНО
                 {
-                    delete g_gameLoopHook;
-                    g_gameLoopHook = nullptr;
+                    delete g_gameObjectManager;
+                    g_gameObjectManager = nullptr;
+                }
+                if (g_mainLoopHook)
+                {
+                    delete g_mainLoopHook;
+                    g_mainLoopHook = nullptr;
                 }
                 if (g_visibleObjectsHook)
                 {

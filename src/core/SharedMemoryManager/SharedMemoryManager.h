@@ -55,6 +55,14 @@ class SharedMemoryManager
      */
     SharedData* getMemoryPtr();
 
+    /**
+     * @brief Получить КОНСТАНТНЫЙ прямой указатель на структуру SharedData.
+     * @details Позволяет напрямую БЕЗОПАСНО читать данные. Любая попытка
+     *          изменить данные через этот указатель вызовет ошибку компиляции.
+     * @return Константный указатель на SharedData или nullptr.
+     */
+    const SharedData* getConstMemoryPtr() const;  // <-- Добавляем const в конце
+
    private:
     HANDLE m_hMapFile = NULL;      ///< Handle для file mapping
     HANDLE m_hMutex = NULL;        ///< Handle для мьютекса синхронизации

@@ -15,16 +15,11 @@
  */
 struct Player : public Unit
 {
-    // На данный момент нам не известны или не нужны дополнительные поля,
-    // которые есть у Player, но нет у Unit.
-    // Поэтому тело структуры остается пустым.
-    // C++ автоматически обеспечит, что sizeof(Player) будет как минимум
-    // равен sizeof(Unit), и все поля из Unit будут доступны.
-
-    // Если в будущем мы найдем, например, поле "опыт" по смещению 0x2A00,
-    // мы добавим его сюда так:
-    // char _pad_to_experience[0x2A00 - sizeof(Unit)];
-    // uint32_t experience;
+    char data[2572];
+    int something_15;
+    int pBasicContainer;  // 18F4
+    int guid_copy;        // 18FC
+    char data2[3904];
 };
 
 #pragma pack(pop)

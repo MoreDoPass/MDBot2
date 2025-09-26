@@ -8,49 +8,48 @@ NodeStatus IsFacingTargetCondition::tick(BTContext& context)
 {
     // --- ШАГ 1: ПОЛУЧАЕМ ИСХОДНЫЕ ДАННЫЕ ---
 
-    // Получаем GUID'ы себя и цели
-    uint64_t selfGuid = context.character->getGuid();
     uint64_t targetGuid = context.currentTargetGuid;
-
-    if (targetGuid == 0 || selfGuid == 0 || selfGuid == targetGuid)
+    if (targetGuid == 0)
     {
-        return NodeStatus::Failure;  // Некого проверять или цель - это мы сами
+        return NodeStatus::Failure;  // Нет цели - не на кого смотреть
     }
 
-    // Получаем полную информацию об объектах из GOM
-    const GameObjectInfo* selfInfo = context.gameObjectManager->getObjectByGuid(selfGuid);
+    // === НОВАЯ, ПРАВИЛЬНАЯ ЛОГИКА ===
+    // 1. Получаем данные о нашем персонаже НАПРЯМУЮ из Character
+    const Vector3 selfPosition = context.character->getPosition();
+    const float selfOrientation = context.character->getOrientation();
+
+    // 2. Получаем данные о цели из GameObjectManager
     const GameObjectInfo* targetInfo = context.gameObjectManager->getObjectByGuid(targetGuid);
 
-    if (!selfInfo || !targetInfo)
+    if (!targetInfo)
     {
-        return NodeStatus::Failure;  // Один из объектов не найден
+        return NodeStatus::Failure;  // Цель исчезла
     }
 
-    // --- ШАГ 2: ВЕКТОРНАЯ МАТЕМАТИКА ---
+    // --- ШАГ 2: ВЕКТОРНАЯ МАТЕМАТИКА (остается без изменений) ---
 
     // Вектор-стрелка "куда нужно светить" (от нас к цели)
-    float dirToTargetX = targetInfo->position.x - selfInfo->position.x;
-    float dirToTargetY = targetInfo->position.y - selfInfo->position.y;
+    float dirToTargetX = targetInfo->position.x - selfPosition.x;
+    float dirToTargetY = targetInfo->position.y - selfPosition.y;
 
     // Вектор-стрелка "куда мы светим" (из нашего orientation)
-    float facingX = cos(selfInfo->orientation);
-    float facingY = sin(selfInfo->orientation);
+    float facingX = cos(selfOrientation);
+    float facingY = sin(selfOrientation);
 
     // Нормализуем вектор на цель (делаем его "стрелкой" длиной 1)
     float length = sqrt(dirToTargetX * dirToTargetX + dirToTargetY * dirToTargetY);
     if (length > 0)
-    {  // Защита от деления на ноль, если мы стоим в той же точке
+    {
         dirToTargetX /= length;
         dirToTargetY /= length;
     }
 
-    // --- ШАГ 3: СКАЛЯРНОЕ ПРОИЗВЕДЕНИЕ И ПРОВЕРКА ---
+    // --- ШАГ 3: СКАЛЯРНОЕ ПРОИЗВЕДЕНИЕ И ПРОВЕРКА (остается без изменений) ---
 
     // Вычисляем, насколько "хорошо" мы смотрим на цель
     float dotProduct = (facingX * dirToTargetX) + (facingY * dirToTargetY);
 
-    // Мы используем порог 0.707f, который соответствует "конусу" примерно в ±45 градусов.
-    // Это значение обеспечивает естественное поведение, не требуя идеального роботизированного прицеливания.
     const float HUMANIZER_ACCURACY_THRESHOLD = 0.707f;
 
     if (dotProduct >= HUMANIZER_ACCURACY_THRESHOLD)

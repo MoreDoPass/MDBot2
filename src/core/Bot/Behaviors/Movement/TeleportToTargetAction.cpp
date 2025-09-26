@@ -1,12 +1,15 @@
 #include "TeleportToTargetAction.h"
-#include "core/BehaviorTree/BTNode.h"
+#include "core/BehaviorTree/BTContext.h"
 #include "Shared/Data/SharedData.h"
 #include <QLoggingCategory>
 
 Q_LOGGING_CATEGORY(logTeleportToAction, "mdbot.bt.action.teleportto")
 
+TeleportToTargetAction::TeleportToTargetAction(float offsetDistance) : m_offsetDistance(offsetDistance) {}
+
 NodeStatus TeleportToTargetAction::tick(BTContext& context)
 {
+    // --- ШАГ 1: Получаем все необходимые менеджеры (без изменений) ---
     auto gom = context.gameObjectManager;
     auto movementManager = context.movementManager;
     auto character = context.character;
@@ -17,10 +20,11 @@ NodeStatus TeleportToTargetAction::tick(BTContext& context)
         return NodeStatus::Failure;
     }
 
+    // --- ШАГ 2: УНИВЕРСАЛЬНОЕ ОПРЕДЕЛЕНИЕ ЦЕЛИ (ВОТ ГЛАВНОЕ ИСПРАВЛЕНИЕ) ---
     Vector3 targetPosition;
     bool hasTarget = false;
 
-    // --- Сначала ищем цель по GUID ---
+    // Сначала пытаемся найти цель по GUID (приоритет для боя)
     if (context.currentTargetGuid != 0)
     {
         const GameObjectInfo* targetObject = gom->getObjectByGuid(context.currentTargetGuid);
@@ -32,39 +36,52 @@ NodeStatus TeleportToTargetAction::tick(BTContext& context)
         }
         else
         {
+            // Цель с таким GUID больше не видна - это провал.
             qCWarning(logTeleportToAction)
                 << "Target with GUID" << Qt::hex << context.currentTargetGuid << "is no longer visible. Failing.";
-            context.currentTargetGuid = 0;
+            context.currentTargetGuid = 0;  // Сбрасываем неактуальный GUID
             return NodeStatus::Failure;
         }
     }
-    // --- ИЗМЕНЕНИЕ 1: Проверяем, что вектор не нулевой, по-другому ---
-    else if (context.currentTargetPosition.x != 0 || context.currentTargetPosition.y != 0 ||
-             context.currentTargetPosition.z != 0)
+    // Если GUID нет, ищем цель по координатам (для маршрутов, руды и т.д.)
+    else if (!context.currentTargetPosition.isZero())  // Используем метод isZero() или аналог
     {
         targetPosition = context.currentTargetPosition;
         hasTarget = true;
-        // --- ИЗМЕНЕНИЕ 2: Используем строчные буквы x, y, z ---
-        qCDebug(logTeleportToAction) << "Target is a position:" << targetPosition.x << targetPosition.y
+        qCDebug(logTeleportToAction) << "Target is a raw position:" << targetPosition.x << targetPosition.y
                                      << targetPosition.z;
     }
 
+    // Если после всех проверок цели так и не нашлось
     if (!hasTarget)
     {
         qCWarning(logTeleportToAction) << "Teleport failed: no target GUID or position set in context.";
         return NodeStatus::Failure;
     }
 
-    if (character->GetPosition().DistanceSq(targetPosition) < 4.0f)
+    // --- ШАГ 3: Вычисляем конечную точку с учетом смещения (логика остается) ---
+    Vector3 finalDestination = targetPosition;
+    const Vector3 selfPosition = character->getPosition();
+
+    if (m_offsetDistance > 0.01f)
     {
-        qCInfo(logTeleportToAction) << "Already at target position. Success.";
+        Vector3 direction = targetPosition - selfPosition;
+        direction.Normalize();
+        finalDestination = targetPosition - (direction * m_offsetDistance);
+    }
+
+    // --- ШАГ 4: Проверяем дистанцию и выполняем телепорт (логика остается) ---
+    if (selfPosition.DistanceSq(finalDestination) < 4.0f)  // 2*2 ярда
+    {
+        qCInfo(logTeleportToAction) << "Already at/near destination. Success.";
+        // Важно! Сбрасываем позиционную цель, когда дошли до нее.
         context.currentTargetPosition = Vector3();
         return NodeStatus::Success;
     }
 
-    qCInfo(logTeleportToAction) << "TeleportTo command sent for position" << targetPosition.x << targetPosition.y
-                                << targetPosition.z;
-    bool teleportInitiated = movementManager->teleportTo(targetPosition);
+    qCInfo(logTeleportToAction) << "TeleportTo command sent for position" << finalDestination.x << finalDestination.y
+                                << finalDestination.z;
+    bool teleportInitiated = movementManager->teleportTo(finalDestination);
 
     return teleportInitiated ? NodeStatus::Success : NodeStatus::Failure;
 }

@@ -2,133 +2,90 @@
 
 #include <QObject>
 #include <QLoggingCategory>
-#include <QString>
-#include "shared/Data/SharedData.h"  // <-- Подключаем "контракт" для PlayerData
+#include "shared/Data/SharedData.h"
 #include "shared/Utils/Vector.h"
 
-/**
- * @brief Категория логирования для класса Character.
- */
 Q_DECLARE_LOGGING_CATEGORY(characterLog)
 
-/**
- * @brief Для ясности кода, определяем, что "данные персонажа" в этом классе
- *        - это структура PlayerData из общей библиотеки.
- */
-using CharacterData = PlayerData;
-
-/**
- * @brief Класс для работы с данными персонажа в MDBot2.
- * @details Теперь это простой класс-хранилище. Он не читает память игры напрямую,
- *          а получает все данные извне (от класса Bot) через метод updateFromSharedMemory.
- *          Он является QObject'ом для отправки сигналов об изменении данных в GUI.
- */
 class Character : public QObject
 {
     Q_OBJECT
    public:
-    /**
-     * @brief Упрощенный конструктор.
-     * @param parent Родительский QObject.
-     */
-    explicit Character(QObject* parent = nullptr);
-
-    /**
-     * @brief Деструктор.
-     */
+    // 1. Конструктор теперь принимает указатель на SharedData.
+    explicit Character(const SharedData* sharedData, QObject* parent = nullptr);
     ~Character();
 
-    /**
-     * @brief Обновляет внутренние данные на основе свежих данных из общей памяти.
-     * @param data Структура PlayerData, прочитанная из Shared Memory.
-     */
-    void updateFromSharedMemory(const PlayerData& data);
+    // 2. Метод updateFromSharedMemory ПОЛНОСТЬЮ УДАЛЕН. Он больше не нужен.
 
-    // --- Геттеры для доступа к данным ---
+    // --- Геттеры для "живого" доступа к данным ---
+    // (Их объявления не меняются, меняется только их реализация)
+    Vector3 getPosition() const;
 
     /**
-     * @brief Получить текущую позицию персонажа.
-     * @return Vector3 - Координаты (X, Y, Z).
+     * @brief Получает горизонтальный угол поворота персонажа в радианах.
+     * @return Угол поворота.
      */
-    Vector3 GetPosition() const;
-
-    /**
-     * @brief Получить базовый адрес структуры персонажа в памяти игры.
-     * @details Этот адрес нужен, например, для работы системы телепортации.
-     * @return Адрес в памяти или 0, если он еще не получен от DLL.
-     */
+    float getOrientation() const;
     uintptr_t getBaseAddress() const;
-
-    /**
-     * @brief Получить GUID персонажа.
-     * @return 64-битный GUID.
-     */
     uint64_t getGuid() const;
-
-    /**
-     * @brief Получить уровень персонажа.
-     * @return Уровень.
-     */
     uint32_t getLevel() const;
-
-    /**
-     * @brief Получить текущее здоровье персонажа.
-     * @return Текущее здоровье.
-     */
     uint32_t getHealth() const;
-
-    /**
-     * @brief Получить максимальное здоровье персонажа.
-     * @return Максимальное здоровье.
-     */
     uint32_t getMaxHealth() const;
-
-    /**
-     * @brief Получить текущую ману/энергию/ярость персонажа.
-     * @return Текущая мана.
-     */
     uint32_t getMana() const;
-
-    /**
-     * @brief Получить максимальную ману/энергию/ярость персонажа.
-     * @return Максимальная мана.
-     */
     uint32_t getMaxMana() const;
 
     /**
-     * @brief Получить все данные персонажа одной структурой.
-     * @return Константная ссылка на внутреннюю структуру данных.
+     * @brief Получает список ID всех активных аур на персонаже.
+     * @return QVector со списком ID.
      */
-    const CharacterData& data() const;
+    QVector<int32_t> getAuras() const;
 
-    // --- НОВЫЕ МЕТОДЫ-ГЕТТЕРЫ ДЛЯ КУЛДАУНОВ ---
     /**
-     * @brief Проверяет, активен ли в данный момент боевой ГКД.
-     * @return true, если ГКД активен.
+     * @brief Получает список ID всех заклинаний, находящихся на кулдауне.
+     * @return QVector со списком ID.
      */
+    QVector<uint32_t> getCooldowns() const;
+
     bool isGcdActive() const;
+    bool isSpellOnCooldown(uint32_t spellId) const;
+    bool hasAura(int32_t spellId) const;  // <-- Добавим новый полезный геттер для аур
 
     /**
-     * @brief Проверяет, находится ли указанное заклинание на кулдауне.
-     * @param spellId ID заклинания для проверки.
-     * @return true, если заклинание на кулдауне.
+     * @brief Проверяет, произносит ли персонаж какое-либо заклинание.
+     * @return true, если персонаж кастует.
      */
-    bool isSpellOnCooldown(uint32_t spellId) const;
+    bool isCasting() const;
+
+    /**
+     * @brief Проверяет, находится ли персонаж в состоянии боя.
+     * @return true, если установлен флаг боя.
+     */
+    bool isInCombat() const;
+
+    /**
+     * @brief Проверяет, активна ли в данный момент автоатака у персонажа.
+     * @return true, если персонаж атакует, иначе false.
+     */
+    bool isAutoAttacking() const;
+
+    /**
+     * @brief Получает ID заклинания, которое персонаж кастует в данный момент.
+     * @return ID заклинания или 0, если каста нет.
+     */
+    uint32_t getCastingSpellId() const;
+
+    /**
+     * @brief Получает GUID текущей цели персонажа.
+     * @return 64-битный GUID цели или 0, если цель отсутствует.
+     */
+    uint64_t getTargetGuid() const;
 
    signals:
-    /**
-     * @brief Сигнал испускается, когда данные персонажа изменяются.
-     * @param data Новые данные персонажа.
-     */
-    void dataChanged(const CharacterData& data);
+    // 3. Сигнал больше не несет данные, он просто уведомляет об обновлении.
+    void dataRefreshed();
 
    private:
-    /// @brief Внутренний кэш данных персонажа. Является копией PlayerData из Shared Memory.
-    CharacterData m_data;
-
-    // Кэш состояния боевого ГКД.
-    bool m_isGcdActive = false;
-
-    // Кэш ID активных кулдаунов заклинаний для быстрого поиска.
-    QSet<uint32_t> m_activeCooldownIds;
+    // 4. Все старые поля-копии УДАЛЕНЫ.
+    // Вместо них - один указатель на "Источник Правды".
+    const SharedData* m_sharedData;
 };

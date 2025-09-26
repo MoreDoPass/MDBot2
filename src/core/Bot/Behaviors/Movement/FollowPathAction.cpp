@@ -20,7 +20,7 @@ NodeStatus FollowPathAction::tick(BTContext& context)
     }
 
     const Vector3& currentWaypoint = context.gatheringProfile->path[context.currentPathIndex];
-    const Vector3& playerPosition = context.character->GetPosition();
+    const Vector3& playerPosition = context.character->getPosition();
 
     float deltaX = playerPosition.x - currentWaypoint.x;
     float deltaY = playerPosition.y - currentWaypoint.y;

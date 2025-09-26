@@ -29,13 +29,14 @@ struct GameObjectInfo
     float orientation = 0.0f;  // <-- ДОБАВЛЯЕМ СЮДА
 
     // --- Данные для Unit/Player ---
-    uint32_t health = 0;
+    uint32_t Health = 0;
     uint32_t maxHealth = 0;
-    uint32_t mana = 0;
+    uint32_t Mana = 0;
     uint32_t maxMana = 0;
     uint8_t level = 0;
     uint32_t flags = 0;
     uint64_t targetGuid = 0;
+    uint64_t autoAttackTargetGuid = 0;
 
     int32_t auraCount;
     int32_t auras[MAX_AURAS_PER_UNIT];
@@ -68,14 +69,24 @@ struct PlayerData
     uint64_t guid = 0;
     uintptr_t baseAddress = 0;  ///< Указатель на структуру игрока, нужен для телепортации.
     Vector3 position;
+    float orientation = 0.0f;
 
     // --- Основные статы ---
-    uint32_t health = 0;
+    uint32_t Health = 0;
     uint32_t maxHealth = 0;
-    uint32_t mana = 0;
+    uint32_t Mana = 0;
     uint32_t maxMana = 0;
     uint8_t level = 0;
     uint32_t flags = 0;
+    uint64_t targetGuid = 0;
+    uint64_t autoAttackTargetGuid = 0;
+
+    // --- ДОБАВЛЯЕМ АУРЫ ---
+    int32_t auraCount;
+    int32_t auras[MAX_AURAS_PER_UNIT];
+
+    bool isCasting;
+    uint32_t castingSpellId;
 
     // --- ДОБАВЛЯЕМ БЛОК ДЛЯ КУЛДАУНОВ ---
     int32_t activeCooldownCount = 0;
@@ -103,20 +114,14 @@ enum class CommandStatus : uint32_t
  */
 enum class ClientCommandType : uint32_t
 {
-    None = 0,  ///< Нет команды, состояние по умолчанию.
-    MoveTo,    ///< Команда на перемещение к указанным координатам.
-    Attack,    ///< Команда на атаку цели.
-    Stop,      ///< Команда на прекращение текущего действия.
+    None = 0,         ///< Нет команды, состояние по умолчанию.
+    MoveTo,           ///< Команда на перемещение к указанным координатам.
+    StartAutoAttack,  ///< Команда на атаку цели.
+    Stop,             ///< Команда на прекращение текущего действия.
 
     // Теперь "Мозг" может приказать "Агенту" кастовать заклинание на цель.
     CastSpellOnTarget,
-
-    /**
-     * @brief Команда на поворот персонажа лицом к цели.
-     * @details Использует внутриигровой механизм Click-To-Move.
-     *          В качестве параметра используется targetGuid.
-     */
-    FaceTarget,
+    SetOrientation,
     NativeInteract
 };
 
@@ -142,6 +147,7 @@ struct ClientCommand
     // Теперь, когда мы отдаем приказ CastSpellOnTarget,
     // мы можем указать в этом поле ID нужного заклинания.
     int32_t spellId = 0;
+    float orientation;
 };
 
 /**

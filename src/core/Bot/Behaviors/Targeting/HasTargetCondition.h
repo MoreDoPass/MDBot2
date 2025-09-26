@@ -1,19 +1,23 @@
 #pragma once
 #include "core/BehaviorTree/ConditionNode.h"
+#include "shared/Structures/Enums/GameObjectType.h"  // <-- Подключаем наш enum
 
 /**
  * @class HasTargetCondition
- * @brief Узел-условие, который проверяет, выбрана ли у бота в данный момент цель.
- * @details Этот узел просто проверяет, является ли поле 'currentTargetGuid'
- *          в контексте дерева отличным от нуля.
- *
- *          Это ключевой "переключатель" для логики, которая должна вести себя
- *          по-разному в зависимости от того, "свободен" ли бот или уже "занят"
- *          работой над конкретной целью.
+ * @brief Узел-условие, который проверяет, выбрана ли у бота цель,
+ *        и опционально - соответствует ли она заданному типу.
  */
 class HasTargetCondition : public ConditionNode
 {
    public:
-    HasTargetCondition();
+    /**
+     * @brief Конструктор.
+     * @param requiredType (Опционально) Если указан тип (кроме None), узел проверит,
+     *                     что текущая цель именно этого типа.
+     */
+    explicit HasTargetCondition(GameObjectType requiredType = GameObjectType::None);
     NodeStatus tick(BTContext& context) override;
+
+   private:
+    GameObjectType m_requiredType;
 };

@@ -2,17 +2,7 @@
 
 #include "core/BehaviorTree/ConditionNode.h"
 #include "core/Bot/Behaviors/Shared/UnitSource.h"  // <-- Подключаем наш новый, правильный enum
-
-/**
- * @enum ComparisonType
- * @brief Определяет, какой тип сравнения будет выполнять узел.
- */
-enum class ComparisonType
-{
-    GreaterOrEqual,  // >=
-    Less,            // <
-    Equal            // ==
-};
+#include "core/Bot/Behaviors/Shared/ComparisonType.h"
 
 /**
  * @class IsLevelCondition

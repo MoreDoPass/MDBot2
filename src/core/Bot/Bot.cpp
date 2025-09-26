@@ -45,6 +45,13 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
             }
             qCInfo(logBot) << "Shared memory created successfully.";
 
+            // --- ИЗМЕНЕНИЕ 1: ПОЛУЧАЕМ УКАЗАТЕЛЬ СРАЗУ ПОСЛЕ СОЗДАНИЯ ---
+            const SharedData* pSharedData = m_sharedMemory.getConstMemoryPtr();
+            if (!pSharedData)
+            {
+                throw std::runtime_error("Failed to get a pointer to the shared memory block.");
+            }
+
             qCInfo(logBot) << "Attempting to inject MDBot_Client.dll...";
             const std::string dllName = "MDBot_Client.dll";
             uintptr_t dllBaseAddress = InjectionManager::Inject(static_cast<DWORD>(m_processId), dllName);
@@ -97,9 +104,10 @@ Bot::Bot(qint64 processId, const QString& processName, const QString& computerNa
                 qCInfo(logBot) << "No computer name provided, skipping GetComputerNameHook installation.";
             }
 
-            m_character = new Character(this);
-            m_gameObjectManager = new GameObjectManager(this);
-            m_movementManager = new MovementManager(&m_sharedMemory, &m_memoryManager, m_character, this);
+            m_character = new Character(pSharedData, this);
+            m_gameObjectManager = new GameObjectManager(pSharedData, this);
+            m_movementManager =
+                new MovementManager(&m_sharedMemory, &m_memoryManager, m_character, m_gameObjectManager, this);
             m_combatManager = new CombatManager(&m_sharedMemory, this);
             m_interactionManager = new InteractionManager(&m_sharedMemory, this);
 
@@ -268,14 +276,6 @@ void Bot::tick()
                 pWriteableData->commandToDll.targetGuid = 0;
                 // Можно и позицию очистить для полной гигиены
                 pWriteableData->commandToDll.position = {};
-            }
-            if (m_gameObjectManager)
-            {
-                m_gameObjectManager->updateFromSharedMemory(dataFromDll);
-            }
-            if (m_character)
-            {
-                m_character->updateFromSharedMemory(dataFromDll.player);
             }
         }
 

@@ -27,7 +27,7 @@ NodeStatus FindGameObjectByTypeAction::tick(BTContext& context)
     const GameObjectInfo* closestObject = nullptr;
     float minDistanceSq = 999999.0f;
 
-    Vector3 myPosition = context.character->GetPosition();
+    Vector3 myPosition = context.character->getPosition();
 
     for (const GameObjectInfo* objInfo : objects)
     {

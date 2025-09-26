@@ -118,8 +118,23 @@ struct Unit : public WorldObject
     CMovement* pMovement;              // 0xD8
     char _pad_before_Movement[0x6AC];  // Доводит до 0x788
     CMovement m_movement;              // 0x788, содержит 'position' по смещению +0x10
-    char padding_to_targetGuid[516];
-    uint8_t castID;
+    char padding_to_autoAttackTarget[456];
+
+    /**
+     * @brief [смещение 0xA20] 64-битный GUID цели, на которую в данный момент направлена автоатака.
+     * @details Это поле является главным индикатором состояния автоатаки.
+     *          - Если значение равно 0, автоатака неактивна.
+     *          - Если значение отлично от 0, оно содержит GUID юнита, который является текущей
+     *            целью автоматических атак ближнего боя.
+     *          Поле обновляется клиентом в момент отправки на сервер пакета CMSG_ATTACKSWING.
+     *
+     * @note Поле разделено на две 32-битные части для совместимости с 32-битной архитектурой.
+     */
+    uint32_t autoAttackTargetGuid_low;
+    uint32_t autoAttackTargetGuid_high;
+
+    char padding_after_autoAttackTarget[52];
+    uint8_t castID;  // 0xA5C
     char padding_A5D[15];
     uint32_t castSpellId;
     uint32_t castTargetGuid_low;

@@ -34,7 +34,7 @@ NodeStatus IsPlayersNearbyCondition::tick(BTContext& context)
     auto players = gom->getObjectsByType(GameObjectType::Player);
 
     // Наша простая и быстрая проверка
-    if (players.size() > 1)
+    if (players.size() > 0)
     {
         qCDebug(logPlayersNearby) << "Found" << players.size()
                                   << "players nearby (including self). Other players DETECTED. Result: Success.";

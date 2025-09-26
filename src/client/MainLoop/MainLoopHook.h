@@ -1,10 +1,10 @@
 #pragma once
 #include "Core/Hooking/InlineHook.h"
 
-class GameLoopHook : public InlineHook
+class MainLoopHook : public InlineHook
 {
    public:
-    GameLoopHook();
+    MainLoopHook();
 
    protected:
     void handler(const Registers* regs) override;

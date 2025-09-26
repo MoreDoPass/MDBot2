@@ -14,35 +14,29 @@ IsInRangeCondition::IsInRangeCondition(float distance)
 
 NodeStatus IsInRangeCondition::tick(BTContext& context)
 {
-    // Шаг 1: Проверяем, есть ли у нас вообще цель.
     if (context.currentTargetGuid == 0)
     {
-        qCDebug(logBT) << "IsInRangeCondition FAILED: No target selected.";
         return NodeStatus::Failure;
     }
 
-    // Шаг 2: Получаем объекты себя и цели из менеджера.
-    const GameObjectInfo* selfInfo = context.gameObjectManager->getObjectByGuid(context.character->getGuid());
+    // === НОВАЯ, ПРАВИЛЬНАЯ ЛОГИКА ===
+    // 1. Получаем позицию нашего персонажа НАПРЯМУЮ из Character.
+    const Vector3 selfPosition = context.character->getPosition();
+
+    // 2. Получаем информацию о цели из GameObjectManager, как и раньше.
     const GameObjectInfo* targetInfo = context.gameObjectManager->getObjectByGuid(context.currentTargetGuid);
 
-    // Если один из объектов не найден (например, цель исчезла), проваливаем условие.
-    if (!selfInfo || !targetInfo)
+    if (!targetInfo)
     {
-        qCDebug(logBT) << "IsInRangeCondition FAILED: Could not find self or target object info.";
+        // Цель могла исчезнуть, это нормально.
         return NodeStatus::Failure;
     }
 
-    // Шаг 3: Вычисляем квадрат расстояния и сравниваем.
-    const float currentDistanceSq = selfInfo->position.DistanceSq(targetInfo->position);
-
-    if (currentDistanceSq <= m_distanceSq)
+    // 3. Считаем дистанцию между нашей позицией и позицией цели.
+    if (selfPosition.DistanceSq(targetInfo->position) <= m_distanceSq)
     {
-        // Мы в пределах досягаемости.
-        qCDebug(logBT) << "IsInRangeCondition SUCCEEDED: DistanceSq" << currentDistanceSq << "<=" << m_distanceSq;
         return NodeStatus::Success;
     }
 
-    // Мы слишком далеко.
-    qCDebug(logBT) << "IsInRangeCondition FAILED: DistanceSq" << currentDistanceSq << ">" << m_distanceSq;
     return NodeStatus::Failure;
 }
