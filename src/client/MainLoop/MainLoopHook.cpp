@@ -12,6 +12,16 @@
 #include "shared/Structures/GameObject.h"
 #include "shared/Structures/Cooldowns.h"
 
+// Глобальная переменная игры, хранящая "тик" для команд ввода
+volatile uint32_t* g_timeTickForInput = (uint32_t*)0x00B499A4;
+
+// Сигнатура: int __thiscall CMovement::BuildAndQueue_ToggleRunCommand(void* pThis, uint32_t timeTick, int
+// runStateFlag); pThis - указатель на CMovement (передается через ECX) timeTick - текущий игровой тик (берется из
+// g_timeTickForInput) runStateFlag - текущее состояние бега/ходьбы (мы будем использовать 0)
+typedef int(__thiscall* CMovement_BuildAndQueue_ToggleRunCommand_t)(void* pThis, uint32_t timeTick, int runStateFlag);
+const CMovement_BuildAndQueue_ToggleRunCommand_t BuildAndQueue_ToggleRunCommand_Native =
+    (CMovement_BuildAndQueue_ToggleRunCommand_t)0x006ECF10;
+
 // this_ptr - это указатель на CMovement, который передается через регистр ECX
 // new_orientation - это float, который передается через стек
 typedef void(__thiscall* SetOrientation_t)(void* this_ptr, float new_orientation);
@@ -113,15 +123,32 @@ void MainLoopHook::handler(const Registers* regs)
                     // Преобразуем общий указатель в указатель на структуру Unit
                     Unit* playerUnit = reinterpret_cast<Unit*>(g_playerPtr);
 
-                    // Вызываем нативную функцию игры.
-                    // В качестве первого аргумента (который пойдет в ECX) передаем
-                    // указатель на вложенную структуру m_movement.
-                    // В качестве второго - угол из нашей команды.
+                    // --- ШАГ 1: Поворачиваем персонажа локально (на клиенте) ---
+                    // Это мгновенно меняет то, куда смотрит камера и персонаж на твоем экране.
                     SetOrientation_Native(&playerUnit->m_movement, cmd.orientation);
 
-                    // Для отладки, чтобы убедиться, что команда выполнилась
+                    // --- ШАГ 2: Инициируем отправку пакета на сервер ---
+                    // Чтобы другие игроки и сервер увидели наш новый поворот, нужно
+                    // сгенерировать команду движения, которая заставит клиент отправить пакет.
+
+                    // Получаем указатель на CMovement для thiscall
+                    void* pMovement = &playerUnit->m_movement;
+
+                    // Получаем текущий игровой тик из глобальной переменной
+                    uint32_t currentTick = *g_timeTickForInput;
+
+                    // В качестве флага бега/ходьбы передаем 0. Этого достаточно,
+                    // чтобы сгенерировать команду и отправить пакет с нашим новым углом.
+                    int runFlag = 0;
+
+                    // Вызываем нативную функцию, которая создаст команду и поставит ее в очередь
+                    BuildAndQueue_ToggleRunCommand_Native(pMovement, currentTick, runFlag);
+
+                    // Обновляем отладочное сообщение
                     char debugMsg[256];
-                    sprintf_s(debugMsg, "MDBot_Client: Executed SetOrientation. Angle: %.2f\n", cmd.orientation);
+                    sprintf_s(debugMsg,
+                              "MDBot_Client: SetOrientation (Angle: %.2f), triggered server update with tick %u.\n",
+                              cmd.orientation, currentTick);
                     OutputDebugStringA(debugMsg);
                 }
                 break;
