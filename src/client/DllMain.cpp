@@ -7,6 +7,9 @@
 #include "shared/Data/SharedData.h"
 #include "Managers/GameObjectManager.h"
 #include "Managers/CharacterManager/CharacterManager.h"
+#include "Managers/InteractionManager/InteractionManager.h"
+#include "Managers/CombatManager/CombatManager.h"
+#include "Managers/MovementManager/MovementManager.h"
 
 // Глобальный УКАЗАТЕЛЬ на наш хук
 MainLoopHook* g_mainLoopHook = nullptr;
@@ -14,8 +17,12 @@ VisibleObjectsHook* g_visibleObjectsHook = nullptr;
 CtMEnablerHook* g_ctmEnablerHook = nullptr;
 CharacterHook* g_characterHook = nullptr;
 SharedMemoryConnector* g_sharedMemory = nullptr;
+
 GameObjectManager* g_gameObjectManager = nullptr;
 CharacterManager* g_characterManager = nullptr;
+InteractionManager* g_interactionManager = nullptr;
+CombatManager* g_combatManager = nullptr;
+MovementManager* g_movementManager = nullptr;
 
 /**
  * @brief Поток-инициализатор. Создает коннектор к общей памяти и устанавливает хук.
@@ -88,6 +95,16 @@ DWORD WINAPI Initialize(LPVOID hModule)
 
     g_characterManager = new CharacterManager();  // <-- 2. СОЗДАЕМ МЕНЕДЖЕР!
     OutputDebugStringA("MDBot_Client: CharacterManager created.");
+
+    // --- НОВОЕ: Создаем экземпляры исполнительных менеджеров ---
+    g_interactionManager = new InteractionManager();
+    OutputDebugStringA("MDBot_Client: InteractionManager created.");
+
+    g_combatManager = new CombatManager();
+    OutputDebugStringA("MDBot_Client: CombatManager created.");
+
+    g_movementManager = new MovementManager();
+    OutputDebugStringA("MDBot_Client: MovementManager created.");
 
     OutputDebugStringA("MDBot_Client: Installing MainLoopHook (Handler)...");
     g_mainLoopHook = new MainLoopHook();  // <-- ИСПРАВЛЕНО
@@ -164,6 +181,21 @@ extern "C"
                 {
                     delete g_gameObjectManager;
                     g_gameObjectManager = nullptr;
+                }
+                if (g_interactionManager)
+                {
+                    delete g_interactionManager;
+                    g_interactionManager = nullptr;
+                }
+                if (g_combatManager)
+                {
+                    delete g_combatManager;
+                    g_combatManager = nullptr;
+                }
+                if (g_movementManager)
+                {
+                    delete g_movementManager;
+                    g_movementManager = nullptr;
                 }
                 if (g_mainLoopHook)
                 {

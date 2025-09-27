@@ -7,6 +7,9 @@ add_library(MDBot_Client SHARED
     Core/Memory/SharedMemoryConnector.cpp
     Managers/GameObjectManager.cpp
     Managers/CharacterManager/CharacterManager.cpp
+    Managers/InteractionManager/InteractionManager.cpp
+    Managers/CombatManager/CombatManager.cpp
+    Managers/MovementManager/MovementManager.cpp
     Hooks/VisibleObjectsHook.cpp
     Hooks/CtMEnablerHook.cpp
     Hooks/CharacterHook.cpp
