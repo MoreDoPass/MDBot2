@@ -78,7 +78,11 @@ struct UnitProperties  // sizeof=0xD8
     char _pad_to_health[16];
     unsigned int currentHealth;
     unsigned int currentMana;
-    char _pad1[24];
+    unsigned int currentRage;  ///< Хранится *10 (100 силы рун = 1000)
+    unsigned int dunno_field;
+    unsigned int currentEnergy;
+    char _pad_power_block[8];
+    unsigned int currentRunicPower;  ///< Хранится *10 (100 силы рун = 1000)
     unsigned int maxHealth;
     unsigned int maxMana;
     char _pad2[80];
@@ -103,6 +107,48 @@ struct UnitProperties  // sizeof=0xD8
      * @endcode
      */
     unsigned int flags;
+    char padding_0xD8[24];
+
+    /**
+     * @brief [смещение 0xF0] Игровой радиус модели.
+     * @details Это значение напрямую влияет на максимальное расстояние, с которого юнит
+     *          может атаковать или быть атакован. Оно добавляется
+     *          к базовой дистанции атаки вместе с радиусом цели.
+     *          Формула: Макс. дистанция = Базовая дист. + combatReach (атакующего) + combatReach (цели).
+     *
+     * @code
+     * // Пример расчета реальной дистанции атаки:
+     * const float BASE_MELEE_RANGE = 5.0f;
+     * float playerReach = pPlayer->pUnitProperties->combatReachRadius;
+     * float targetReach = pTarget->pUnitProperties->combatReachRadius;
+     * float maxAttackRange = BASE_MELEE_RANGE + playerReach + targetReach;
+     *
+     * if (distanceToTarget <= maxAttackRange)
+     * {
+     *     // Цель в радиусе атаки
+     * }
+     * @endcode
+     */
+    float combatReachRadius;
+
+    char padding_0xF4[48];
+
+    /**
+     * @brief [смещение 0x124] Битовое поле, отвечающее за состояние "занятости" (tap) юнита.
+     * @details Ключевой флаг здесь - это 3-й бит (маска 0x4), который устанавливается,
+     *          когда юнит "занят" другим игроком, не состоящим в вашей группе.
+     *          Это основной и самый надежный признак "серого" моба. Если этот флаг
+     *          равен 0, моб либо свободен, либо занят вами или вашей группой.
+     *
+     * @code
+     * // Пример проверки, является ли моб "серым" (бесполезным для атаки):
+     * if (pUnit->pUnitProperties->tapFlags & 0x4)
+     * {
+     *     // Моб "серый", атаковать бессмысленно.
+     * }
+     * @endcode
+     */
+    unsigned int tapFlags;
 };
 
 /**

@@ -1,4 +1,5 @@
 #include "CharacterManager.h"
+#include "shared/Structures/Offsets.h"
 #include "client/Managers/GameObjectManager.h"
 #include "shared/Structures/Player.h"     // Нужен для reinterpret_cast<Unit*> и доступа к полям
 #include "shared/Structures/Cooldowns.h"  // Нужен для структуры CooldownInfoNode
@@ -39,6 +40,16 @@ void CharacterManager::update(SharedData* sharedData, uintptr_t playerPtr)
             sharedData->player.maxHealth = playerUnit->pUnitProperties->maxHealth;
             sharedData->player.Mana = playerUnit->pUnitProperties->currentMana;
             sharedData->player.maxMana = playerUnit->pUnitProperties->maxMana;
+            // --- Чтение дополнительных ресурсов ---
+            // Читаем Ярость. В памяти она хранится умноженной на 10 (например, 374),
+            // поэтому мы делим на 10, чтобы получить нормальное значение (37).
+            sharedData->player.Rage = playerUnit->pUnitProperties->currentRage / 10;
+
+            // Читаем Энергию. Она хранится 1 к 1, деление не требуется.
+            sharedData->player.Energy = playerUnit->pUnitProperties->currentEnergy;
+
+            // Читаем Силу Рун. Аналогично Ярости, хранится * 10.
+            sharedData->player.RunicPower = playerUnit->pUnitProperties->currentRunicPower / 10;
             sharedData->player.level = playerUnit->pUnitProperties->level;
             sharedData->player.flags = playerUnit->pUnitProperties->flags;
             uint64_t high = playerUnit->pUnitProperties->targetGuid_high;
@@ -53,6 +64,9 @@ void CharacterManager::update(SharedData* sharedData, uintptr_t playerPtr)
             sharedData->player.maxHealth = 0;
             sharedData->player.Mana = 0;
             sharedData->player.maxMana = 0;
+            sharedData->player.Rage = 0;
+            sharedData->player.Energy = 0;
+            sharedData->player.RunicPower = 0;
             sharedData->player.level = 0;
             sharedData->player.flags = 0;
         }
@@ -80,6 +94,18 @@ void CharacterManager::update(SharedData* sharedData, uintptr_t playerPtr)
         // --- БЛОК 3: Чтение уникальных данных (кулдауны) из другой области памяти ---
         // Вызываем наш приватный метод, который теперь является частью этого класса.
         this->readPlayerCooldowns(sharedData->player);
+
+        // --- БЛОК 4: ЧТЕНИЕ СПЕЦИФИЧНЫХ ДЛЯ КЛАССА РЕСУРСОВ (РУНЫ) ---
+        // Надо ли делать сделать проверку на класс или всегда читать
+        // Этот блок читает данные из статической области памяти, а не из структуры игрока.
+        // Поэтому он может выполняться независимо от playerPtr, но для консистентности
+        // данных делаем это здесь же, внутри общего try/except блока.
+        const volatile uint32_t* runeMaskPtr =
+            reinterpret_cast<const volatile uint32_t*>(Offsets::RUNE_STATUS_MASK_ADDR);
+        // Разыменовываем указатель и читаем 4 байта (DWORD) с состоянием рун.
+        // `volatile` используется как лучшая практика, чтобы компилятор не кэшировал это значение,
+        // так как оно постоянно изменяется самим игровым клиентом.
+        sharedData->player.runeStatusMask = *runeMaskPtr;
     }
     catch (...)
     {

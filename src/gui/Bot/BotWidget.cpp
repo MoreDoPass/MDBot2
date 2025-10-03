@@ -5,7 +5,9 @@
 #include "gui/Bot/Modules/Main/MainWidget.h"
 #include "gui/Bot/Modules/Debug/DebugWidget.h"
 #include "gui/Bot/Modules/Gathering/GatheringWidget.h"
+#include "gui/Bot/Modules/Grinding/GrindingWidget.h"
 #include "gui/Bot/Modules/Settings/SettingsWidget.h"
+#include "gui/Bot/Modules/Combat/CombatWidget.h"
 
 #include <QVBoxLayout>
 #include <QLabel>
@@ -30,11 +32,17 @@ BotWidget::BotWidget(Bot* bot, ProfileManager* profileManager, QWidget* parent) 
             m_mainWidget = new MainWidget(m_bot, this);
             m_tabWidget->addTab(m_mainWidget, tr("Главное"));
 
+            m_combatWidget = new CombatWidget(this);
+            m_tabWidget->addTab(m_combatWidget, tr("Бой"));
+
             m_settingsWidget = new SettingsWidget(this);
             m_tabWidget->addTab(m_settingsWidget, tr("Настройки"));
 
             m_gatheringWidget = new GatheringWidget(this);
             m_tabWidget->addTab(m_gatheringWidget, tr("Сбор ресурсов"));
+
+            m_grindingWidget = new GrindingWidget(m_profileManager, this);  // <-- 2. Создаем экземпляр виджета
+            m_tabWidget->addTab(m_grindingWidget, tr("Гринд мобов"));       // <-- 3. Добавляем его как вкладку
 
             if (m_bot->character())
             {
@@ -118,6 +126,24 @@ void BotWidget::onStartRequested(ModuleType type)
     {
         qCWarning(logBotWidget) << "GatheringWidget is null, default gathering settings will be used.";
     }
+
+    if (m_grindingWidget)
+    {
+        settings.grindingSettings = m_grindingWidget->getSettings();
+        qCInfo(logBotWidget) << "Grinding settings collected. NPC IDs count:"
+                             << settings.grindingSettings.npcIdsToGrind.size();
+    }
+
+    if (m_combatWidget)
+    {
+        settings.spec = m_combatWidget->getSpec();
+        qCInfo(logBotWidget) << "Combat spec collected:" << static_cast<int>(settings.spec);
+    }
+    else
+    {
+        qCWarning(logBotWidget) << "CombatWidget is null, default combat spec will be used.";
+    }
+
     // Здесь можно будет добавить получение настроек из других виджетов (GrindingWidget и т.д.)
 
     // 3. Отправляем боту одну, полностью собранную структуру

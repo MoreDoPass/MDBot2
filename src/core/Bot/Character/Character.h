@@ -4,8 +4,22 @@
 #include <QLoggingCategory>
 #include "shared/Data/SharedData.h"
 #include "shared/Utils/Vector.h"
+#include "shared/data/enums/PowerType.h"
 
 Q_DECLARE_LOGGING_CATEGORY(characterLog)
+
+/**
+ * @enum RuneType
+ * @brief Перечисление для идентификации типов рун Рыцаря Смерти.
+ * @details Используется методом Character::getRuneCount для указания,
+ *          какой именно ресурс нужно проверить.
+ */
+enum class RuneType
+{
+    Blood,
+    Frost,
+    Unholy
+};
 
 class Character : public QObject
 {
@@ -33,6 +47,20 @@ class Character : public QObject
     uint32_t getMaxHealth() const;
     uint32_t getMana() const;
     uint32_t getMaxMana() const;
+
+    /**
+     * @brief Универсальный геттер для получения текущего значения любого ресурса.
+     * @param type Тип ресурса (Mana, Rage, etc.), который нужно получить.
+     * @return Текущее значение указанного ресурса.
+     */
+    uint32_t getCurrentPower(PowerType type) const;
+
+    /**
+     * @brief Универсальный геттер для получения максимального значения любого ресурса.
+     * @param type Тип ресурса (Mana, Rage, etc.), который нужно получить.
+     * @return Максимальное значение указанного ресурса.
+     */
+    uint32_t getMaxPower(PowerType type) const;
 
     /**
      * @brief Получает список ID всех активных аур на персонаже.
@@ -79,6 +107,16 @@ class Character : public QObject
      * @return 64-битный GUID цели или 0, если цель отсутствует.
      */
     uint64_t getTargetGuid() const;
+
+    /**
+     * @brief Подсчитывает количество готовых к использованию рун указанного типа.
+     * @details Этот метод является основным интерфейсом для получения информации о
+     *          ресурсах Рыцаря Смерти. Он инкапсулирует логику работы с битовой
+     *          маской, предоставляя простой и понятный результат.
+     * @param type Тип руны (Blood, Frost, Unholy), которую необходимо проверить.
+     * @return Количество готовых рун (0, 1 или 2).
+     */
+    int getRuneCount(RuneType type) const;
 
    signals:
     // 3. Сигнал больше не несет данные, он просто уведомляет об обновлении.

@@ -21,8 +21,6 @@
 #include "core/Bot/Behaviors/Utility/WaitAction.h"
 #include <vector>
 
-#include "core/Bot/CombatLogic/Paladin/RetributionBuilder.h"
-
 // --- ИЗМЕНЕНИЕ: Упрощаем эту функцию ---
 // Теперь она не содержит никакой логики, кроме выбора типа движения.
 // Проверки на игроков будут делаться в самом дереве.
@@ -32,7 +30,7 @@ static std::unique_ptr<BTNode> createMovementNode(BTContext& context)
 
     if (movementSettings.navigationType == MovementSettings::NavigationType::Teleport_Only)
     {
-        return std::make_unique<TeleportToTargetAction>(3.0f);
+        return std::make_unique<TeleportToTargetAction>(1.0f);
     }
     if (movementSettings.navigationType == MovementSettings::NavigationType::CtM_Only)
     {
@@ -44,7 +42,7 @@ static std::unique_ptr<BTNode> createMovementNode(BTContext& context)
         {
             std::vector<std::unique_ptr<BTNode>> children;
             children.push_back(std::make_unique<InverterNode>(std::make_unique<IsPlayersNearbyCondition>()));
-            children.push_back(std::make_unique<TeleportToTargetAction>(3.0f));
+            children.push_back(std::make_unique<TeleportToTargetAction>(1.0f));
             selectorChildren.push_back(std::make_unique<SequenceNode>(std::move(children)));
         }
         selectorChildren.push_back(std::make_unique<MoveToTargetAction>());
@@ -79,17 +77,14 @@ std::unique_ptr<BTNode> OreGrindModule::createGatherTargetBranch(BTContext& cont
     // IsCastingCondition вернет Success, если мы кастуем -> Inverter превратит это в Failure.
     // IsCastingCondition вернет Failure, если мы НЕ кастуем -> Inverter превратит это в Success.
     children.push_back(std::make_unique<InverterNode>(std::make_unique<IsCastingCondition>(UnitSource::Self)));
-
+    children.push_back(std::make_unique<WaitAction>(75.0f));
     // Шаг 4: Отправить команду на взаимодействие (выполнится, только если прошли Шаг 3)
     children.push_back(std::make_unique<InteractWithTargetAction>());
-    children.push_back(std::make_unique<WaitAction>(1250.0f));
     // Шаг 5: Ждать, пока каст не ЗАКОНЧИТСЯ
     children.push_back(std::make_unique<WhileSuccessDecorator>(std::make_unique<IsCastingCondition>(UnitSource::Self)));
 
     // Шаг 7: Очистить цель
     children.push_back(std::make_unique<ClearTargetAction>());
-    // Шаг 8: Пауза, чтобы руда-призрак исчезла
-    children.push_back(std::make_unique<WaitAction>(250.0f));
 
     return std::make_unique<SequenceNode>(std::move(children));
 }
@@ -113,15 +108,16 @@ std::unique_ptr<BTNode> OreGrindModule::createPanicBranch(BTContext& context)
 {
     std::vector<std::unique_ptr<BTNode>> children;
     children.push_back(std::make_unique<IsPlayersNearbyCondition>());
-    // ИСПРАВЛЕНО: Правильно вызываем статический метод
+    children.push_back(std::make_unique<BlacklistTargetAction>(120));  // Действие 1: Блокируем руду
     children.push_back(OreGrindModule::createFollowPathBranch(context));
     return std::make_unique<SequenceNode>(std::move(children));
 }
 
-std::unique_ptr<BTNode> OreGrindModule::createWorkLogicBranch(BTContext& context)
+std::unique_ptr<BTNode> OreGrindModule::createWorkLogicBranch(BTContext& context,
+                                                              std::unique_ptr<BTNode> combatBehavior)
 {
     std::vector<std::unique_ptr<BTNode>> children;
-    children.push_back(RetributionBuilder::buildCombatTree(context));
+    children.push_back(std::move(combatBehavior));
     // ИСПРАВЛЕНО: Правильно вызываем статический метод
     children.push_back(OreGrindModule::createFullGatherCycleBranch(context));
     // ИСПРАВЛЕНО: Правильно вызываем статический метод
@@ -130,7 +126,7 @@ std::unique_ptr<BTNode> OreGrindModule::createWorkLogicBranch(BTContext& context
 }
 
 // --- ГЛАВНЫЙ МЕТОД BUILD ---
-std::unique_ptr<BTNode> OreGrindModule::build(BTContext& context)
+std::unique_ptr<BTNode> OreGrindModule::build(BTContext& context, std::unique_ptr<BTNode> combatBehavior)
 {
     std::vector<std::unique_ptr<BTNode>> rootChildren;
     rootChildren.push_back(std::make_unique<LoadGatheringProfileAction>());
@@ -139,7 +135,7 @@ std::unique_ptr<BTNode> OreGrindModule::build(BTContext& context)
         // ИСПРАВЛЕНО: Правильно вызываем статический метод
         mainSelectorChildren.push_back(OreGrindModule::createPanicBranch(context));
         // ИСПРАВЛЕНО: Правильно вызываем статический метод
-        mainSelectorChildren.push_back(OreGrindModule::createWorkLogicBranch(context));
+        mainSelectorChildren.push_back(OreGrindModule::createWorkLogicBranch(context, std::move(combatBehavior)));
         rootChildren.push_back(std::make_unique<SelectorNode>(std::move(mainSelectorChildren)));
     }
     return std::make_unique<SequenceNode>(std::move(rootChildren));

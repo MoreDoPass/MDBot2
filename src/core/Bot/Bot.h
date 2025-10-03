@@ -37,6 +37,15 @@ class Bot : public QObject
     ~Bot();
 
     qint64 processId() const;
+
+    /**
+     * @brief Возвращает имя процесса, к которому привязан бот.
+     * @details Этот метод является частью интерфейса класса Bot и позволяет
+     *          внешним компонентам, таким как GUI, получить имя процесса
+     *          для отображения.
+     * @return Имя процесса (например, "Wow.exe" или "run.exe").
+     */
+    QString processName() const;
     Character* character() const;
     MovementManager* movementManager() const;
     GameObjectManager* gameObjectManager() const;
@@ -97,3 +106,8 @@ Q_DECLARE_LOGGING_CATEGORY(logBot)
 // ОБЪЯВЛЯЕМ общую категорию для всех узлов Дерева Поведения.
 // Все "кирпичики" будут подключать Bot.h, чтобы "узнать" об этой категории.
 Q_DECLARE_LOGGING_CATEGORY(logBT)
+
+// "Объясняем" системе Qt, что такое Bot*, чтобы она могла корректно
+// работать с этим типом внутри QVariant. Это нужно для извлечения
+// указателя из модели данных ( .value<Bot*>() ).
+Q_DECLARE_METATYPE(Bot*)

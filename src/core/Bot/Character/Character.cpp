@@ -1,5 +1,6 @@
 #include "Character.h"
 #include <QLoggingCategory>
+#include <bit>  // ВАЖНО: Подключаем для std::popcount (стандарт C++20)
 
 Q_LOGGING_CATEGORY(characterLog, "mdbot.character")
 
@@ -216,4 +217,103 @@ bool Character::isAutoAttacking() const
         return m_sharedData->player.autoAttackTargetGuid != 0;
     }
     return false;
+}
+
+uint32_t Character::getCurrentPower(PowerType type) const
+{
+    if (!m_sharedData)
+    {
+        qCWarning(characterLog) << "Attempted to get current power with no shared data available.";
+        return 0;
+    }
+
+    // Используем switch для выбора и возврата значения нужного ресурса
+    // из общей памяти, где оно уже находится в "человеческом" виде.
+    switch (type)
+    {
+        case PowerType::Mana:
+            return m_sharedData->player.Mana;
+        case PowerType::Rage:
+            return m_sharedData->player.Rage;
+        case PowerType::Energy:
+            return m_sharedData->player.Energy;
+        case PowerType::RunicPower:
+            return m_sharedData->player.RunicPower;
+        default:
+            qCWarning(characterLog) << "getCurrentPower was called with an unknown PowerType!";
+            return 0;
+    }
+}
+
+uint32_t Character::getMaxPower(PowerType type) const
+{
+    if (!m_sharedData)
+    {
+        qCWarning(characterLog) << "Attempted to get max power with no shared data available.";
+        return 0;
+    }
+
+    switch (type)
+    {
+        case PowerType::Mana:
+            return m_sharedData->player.maxMana;
+        case PowerType::Rage:
+            return 100;  // Ярость всегда имеет максимум 100.
+        case PowerType::Energy:
+            return 100;  // Энергия по умолчанию 100 (таланты пока не учитываем).
+        case PowerType::RunicPower:
+            // Максимум Силы Рун может меняться с талантами, но базовое значение 100.
+            return 100;
+        default:
+            qCWarning(characterLog) << "getMaxPower was called with an unknown PowerType!";
+            return 0;
+    }
+}
+
+/**
+ * @brief Пространство имен для констант-масок, используемых при анализе состояния рун.
+ * @details Инкапсуляция масок в отдельное пространство имен предотвращает загрязнение
+ *          глобальной области и делает код более читаемым и поддерживаемым.
+ */
+namespace RuneMasks
+{
+/// @brief Маска для двух рун Крови (биты 0 и 1).
+constexpr uint32_t BLOOD = 0b00000011;  // 3
+/// @brief Маска для двух рун Нечестивости (биты 2 и 3).
+constexpr uint32_t UNHOLY = 0b00001100;  // 12
+/// @brief Маска для двух рун Льда (биты 4 и 5).
+constexpr uint32_t FROST = 0b00110000;  // 48
+}  // namespace RuneMasks
+
+int Character::getRuneCount(RuneType type) const
+{
+    if (!m_sharedData)
+    {
+        return 0;
+    }
+
+    // Получаем актуальную маску из общей памяти.
+    const uint32_t mask = m_sharedData->player.runeStatusMask;
+
+    // Используем switch для выбора нужной маски и подсчета битов.
+    switch (type)
+    {
+        case RuneType::Blood:
+            // Применяем маску Крови и считаем установленные биты.
+            // std::popcount - сверхбыстрая аппаратная инструкция для подсчета единичных битов.
+            return std::popcount(mask & RuneMasks::BLOOD);
+
+        case RuneType::Frost:
+            // Применяем маску Льда и считаем установленные биты.
+            return std::popcount(mask & RuneMasks::FROST);
+
+        case RuneType::Unholy:
+            // Применяем маску Нечестивости и считаем установленные биты.
+            return std::popcount(mask & RuneMasks::UNHOLY);
+
+        default:
+            // На случай, если будет передан некорректный тип руны.
+            qCWarning(characterLog) << "getRuneCount was called with an unknown RuneType.";
+            return 0;
+    }
 }

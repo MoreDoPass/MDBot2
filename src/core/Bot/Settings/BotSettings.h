@@ -2,6 +2,7 @@
 
 #pragma once
 #include "GatheringSettings.h"
+#include "GrindingSettings.h"
 #include <QVariant>
 
 /**
@@ -14,6 +15,52 @@ enum class ModuleType
     Gathering,  ///< Сбор ресурсов
     Grinding,   ///< Гринд мобов
     Questing    ///< Выполнение квестов
+};
+
+/**
+ * @enum CharacterClass
+ * @brief Перечисление всех игровых классов.
+ * @details Может использоваться в GUI для фильтрации доступных специализаций.
+ */
+enum class CharacterClass
+{
+    None,
+    Warrior,
+    Paladin,
+    Hunter,
+    Rogue,
+    Priest,
+    DeathKnight,
+    Shaman,
+    Mage,
+    Warlock,
+    Druid
+};
+
+/**
+ * @enum CharacterSpec
+ * @brief Перечисление всех специализаций, которые бот умеет использовать.
+ * @details Это "сердце" выбора боевой логики. GUI должен сформировать
+ *          одно из этих значений, а CombatBuilder будет его использовать в switch-case.
+ */
+enum class CharacterSpec
+{
+    None,  // Значение по умолчанию, если ничего не выбрано
+
+    // Паладин
+    PaladinProtection,
+    PaladinRetribution,
+    PaladinHoly,
+
+    // Воин
+    WarriorArms,
+    WarriorFury,
+    WarriorProtection,
+
+    // Рыцарь смерти
+    DeathKnightBlood,  // <-- ДОБАВЛЕНО
+    DeathKnightFrost,
+    DeathKnightUnholy
 };
 
 /**
@@ -58,7 +105,14 @@ struct BotStartSettings
     ModuleType activeModule = ModuleType::None;  ///< Какой модуль запустить
     MovementSettings movementSettings;
     GatheringSettings gatheringSettings;  ///< Настройки для модуля сбора (если он активен)
+    GrindingSettings grindingSettings;    ///< Настройки для модуля гринда (если он активен)
     // В будущем сюда можно добавить GrindingSettings, QuestingSettings и т.д.
+
+    /**
+     * @brief Выбранная специализация персонажа для построения боевой ротации.
+     * @details Это поле заполняется из GUI и используется CombatBuilder'ом.
+     */
+    CharacterSpec spec = CharacterSpec::None;
 };
 
 // Регистрируем наш главный тип в системе Qt.

@@ -8,7 +8,7 @@ class BTContext;
  * @class RetributionBuilder
  * @brief Собирает дерево боевого поведения для паладина "Воздаяние".
  */
-class RetributionBuilder
+class ProtectionPaladinBuilder
 {
    public:
     // Главный метод, который соберет всю логику для спека.

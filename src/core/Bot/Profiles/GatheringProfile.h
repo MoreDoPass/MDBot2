@@ -24,7 +24,11 @@ struct GatheringProfile
     // --- Настройки, загружаемые из профиля ---
     // Эти поля будут заполняться, только если они есть в JSON.
     // Если нет, будут использованы значения по умолчанию.
-    QString profileName = "Unnamed Profile";                       ///< Имя профиля для отображения.
+    QString profileName = "Unnamed Profile";  ///< Имя профиля для отображения.
+
+    // путь к файлу маршрута
+    QString sourceFilePath;
+
     StartPointLogic startLogic = StartPointLogic::FromTheNearest;  ///< Логика выбора стартовой точки.
     std::vector<int> nodeIdsToGather;                              ///< Список Entry ID руды/травы (если указан).
 

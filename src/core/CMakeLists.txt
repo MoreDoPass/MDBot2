@@ -14,6 +14,7 @@ add_library(Core_BehaviorTree STATIC
     BehaviorTree/SelectorNode.cpp   # <-- Добавили
     BehaviorTree/InverterNode.cpp   # <-- Добавили
     BehaviorTree/WhileSuccessDecorator.cpp
+    BehaviorTree/RunWhileConditionDecorator.cpp
 )
 target_include_directories(Core_BehaviorTree PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -154,5 +155,20 @@ target_include_directories(Core_BlacklistManager PUBLIC
 )
 # BlacklistManager использует Qt для работы с файлами, JSON и логированием.
 target_link_libraries(Core_BlacklistManager PUBLIC
+    Qt6::Core
+)
+
+# --- НОВЫЙ БЛОК: Библиотека PartyManager ---
+add_library(Core_PartyManager STATIC
+    PartyManager/PartyManager.cpp
+)
+target_include_directories(Core_PartyManager PUBLIC
+    ${CORE_INCLUDE_DIR}
+)
+# PartyManager использует Qt (QObject, QList) и ему нужно знать о Bot,
+# поэтому мы линкуем его с Core_Character, чтобы гарантировать правильный
+# порядок сборки и доступ к заголовкам Bot.h.
+target_link_libraries(Core_PartyManager PUBLIC
+    Core_Character # Bot.h использует Character.h, поэтому линкуемся с ним
     Qt6::Core
 )

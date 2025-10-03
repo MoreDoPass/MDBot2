@@ -10,7 +10,9 @@
 #include <stdexcept>
 #include <QDebug>
 
+#include "core/Bot/BehaviorTree/CombatBuilder.h"
 #include "core/Bot/Modules/OreGrindModule.h"
+#include "core/Bot/Modules/MobGrindModule.h"
 
 Q_LOGGING_CATEGORY(logBot, "mdbot.bot")
 Q_LOGGING_CATEGORY(logBT, "mdbot.bot.bt")
@@ -179,6 +181,11 @@ qint64 Bot::processId() const
     return m_processId;
 }
 
+QString Bot::processName() const
+{
+    return m_processName;
+}
+
 Character* Bot::character() const
 {
     return m_character;
@@ -229,16 +236,24 @@ void Bot::start(const BotStartSettings& settings, ProfileManager* profileManager
     m_btContext->profileManager = profileManager;
     m_btContext->settings = m_currentSettings;
 
+    std::unique_ptr<BTNode> combatTree = CombatBuilder::buildCombatLogic(*m_btContext);
+
     if (m_currentSettings.activeModule == ModuleType::Gathering)
     {
-        // Передаем в build теперь весь контекст, чтобы он мог получить доступ к настройкам
-        m_behaviorTreeRoot = OreGrindModule::build(*m_btContext);
+        // Передаем в build теперь два аргумента, как он и требует.
+        m_behaviorTreeRoot = OreGrindModule::build(*m_btContext, std::move(combatTree));
+    }
+    else if (m_currentSettings.activeModule == ModuleType::Grinding)
+    {
+        // Подключаем наш новый модуль по той же схеме.
+        // Не забудьте добавить #include "core/Bot/Modules/MobGrindModule.h" в начало файла Bot.cpp
+        m_behaviorTreeRoot = MobGrindModule::build(*m_btContext, std::move(combatTree));
     }
     else
     {
         qCritical(logBot) << "Attempted to start with an unknown or unsupported module type.";
         m_behaviorTreeRoot.reset();
-        return;
+        // ВАЖНО: combatTree будет автоматически удален здесь, утечки памяти не будет.
     }
 
     if (!m_behaviorTreeRoot)

@@ -29,6 +29,8 @@ add_subdirectory(tools/MDHack)
 file(GLOB_RECURSE BEHAVIOR_FILES "src/core/Bot/Behaviors/*.cpp")
 file(GLOB_RECURSE MODULE_FILES "src/core/Bot/Modules/*.cpp")
 file(GLOB_RECURSE COMBAT_LOGIC_FILES "src/core/Bot/CombatLogic/*.cpp")
+
+file(GLOB_RECURSE BEHAVIOR_TREE_FILES "src/core/Bot/BehaviorTree/*.cpp")
 # --- Создаем основной исполняемый файл ---
 # Здесь мы перечисляем ТОЛЬКО те cpp-файлы, которые не входят ни в одну из core-библиотек.
 # В основном это файлы из папок gui/ и некоторые общие.
@@ -45,12 +47,16 @@ add_executable(MDBot2
     src/gui/Bot/Modules/Character/CharacterWidget.cpp
     src/gui/Bot/Modules/Debug/DebugWidget.cpp
     src/gui/Bot/Modules/Gathering/GatheringWidget.cpp
+    src/gui/Bot/Modules/Grinding/GrindingWidget.cpp
+    src/gui/Bot/Modules/Combat/CombatWidget.cpp
+    src/gui/Party/PartyWidget.cpp
     src/core/Bot/Movement/MovementManager.cpp
     src/core/Bot/CombatManager/CombatManager.cpp
     src/core/Bot/InteractionManager/InteractionManager.cpp
     ${BEHAVIOR_FILES}
     ${MODULE_FILES}
     ${COMBAT_LOGIC_FILES}
+    ${BEHAVIOR_TREE_FILES}
 )
 
 # --- Линкуем MDBot2 со всеми нужными библиотеками ---
@@ -75,6 +81,7 @@ target_link_libraries(MDBot2 PRIVATE
     Core_ProfileManager
     Core_BehaviorTree
     Core_BlacklistManager
+    Core_PartyManager
 )
 
 # Указываем, где искать заголовочные файлы

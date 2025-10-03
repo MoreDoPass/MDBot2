@@ -2,17 +2,21 @@
 
 // Подключаем заголовки менеджеров, к которым "навыкам" понадобится доступ.
 // Пути основаны на структуре твоего проекта.
+#include "core/PartyManager/PartyContext.h"
 #include "core/Bot/Character/Character.h"
 #include "core/Bot/GameObjectManager/GameObjectManager.h"
 #include "core/Bot/Movement/MovementManager.h"
 #include "core/bot/CombatManager/CombatManager.h"
 #include "core/Bot/InteractionManager/InteractionManager.h"
+
 #include "core/Bot/Settings/BotSettings.h"       // <-- ДОБАВЛЕНО: нужен для BotStartSettings
 #include "core/Bot/Profiles/GatheringProfile.h"  // <-- ДОБАВЛЕНО: нужен для GatheringProfile
-#include "Shared/Utils/Vector.h"                 // <-- ДОБАВЛЕНО: нужен для Vec3
-#include <memory>                                // <-- ДОБАВЛЕНО: нужен для std::shared_ptr
-#include <map>                                   // <-- ДОБАВЛЕНО
-#include <QDateTime>                             // <-- ДОБАВЛЕНО
+#include "core/Bot/Profiles/GrindingProfile.h"   // потом убрать обьединив профили из за дублирования
+
+#include "Shared/Utils/Vector.h"  // <-- ДОБАВЛЕНО: нужен для Vec3
+#include <memory>                 // <-- ДОБАВЛЕНО: нужен для std::shared_ptr
+#include <map>                    // <-- ДОБАВЛЕНО
+#include <QDateTime>              // <-- ДОБАВЛЕНО
 #include "core/Bot/Bot.h"
 class ProfileManager;
 
@@ -31,6 +35,7 @@ class BTContext
     CombatManager* combatManager = nullptr;
     InteractionManager* interactionManager = nullptr;
     ProfileManager* profileManager = nullptr;
+    std::shared_ptr<PartyContext> partyContext;
 
     // --- Настройки ---
     // Копия настроек, с которыми был запущен бот.
@@ -42,8 +47,20 @@ class BTContext
     // а "навык атаки" отсюда его заберет.
     uint64_t currentTargetGuid = 0;
 
+    // удалить потом дублирование тут
     // Указатель на загруженный и распарсенный профиль
     std::shared_ptr<GatheringProfile> gatheringProfile;  // <-- ДОБАВЛЕНО
+
+    /**
+     * @brief Указатель на загруженный профиль для гринда.
+     * @details Заполняется узлом LoadGrindingProfileAction.
+     */
+    std::shared_ptr<GrindingProfile> grindingProfile;
+    /**
+     * @brief Индекс текущей точки в маршруте grindingProfile->path.
+     * @details Используется узлами движения, когда активен модуль гринда.
+     */
+    size_t grindingPathIndex = 0;
 
     /// @brief Позиция цели, если целью являются просто координаты (точка на маршруте).
     Vector3 currentTargetPosition;  // <-- ДОБАВЛЕНО
