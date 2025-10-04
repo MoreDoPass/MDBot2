@@ -5,9 +5,9 @@
 #include <vector>
 
 // Подключаем всех наших "специалистов-строителей"
-#include "core/Bot/BehaviorTree/SystemBuilder.h"
-#include "core/Bot/BehaviorTree/ModuleBuilder.h"
-#include "core/Bot/BehaviorTree/CombatBuilder.h"
+#include "core/Bot/BehaviorTree/System/SystemBuilder.h"
+#include "core/Bot/BehaviorTree/Modules/ModuleBuilder.h"
+#include "core/Bot/BehaviorTree/Combat/CombatBuilder.h"
 
 Q_LOGGING_CATEGORY(logBTBuilder, "mdbot.bot.bt.builder")
 

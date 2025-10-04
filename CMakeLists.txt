@@ -26,7 +26,7 @@ add_subdirectory(src/shared)
 add_subdirectory(tools/MDHack)
 
 
-file(GLOB_RECURSE BEHAVIOR_FILES "src/core/Bot/Behaviors/*.cpp")
+file(GLOB_RECURSE BEHAVIOR_FILES "src/core/Bot/BehaviorTree/Nodes/*.cpp")
 file(GLOB_RECURSE MODULE_FILES "src/core/Bot/Modules/*.cpp")
 file(GLOB_RECURSE COMBAT_LOGIC_FILES "src/core/Bot/CombatLogic/*.cpp")
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "core/Bot/Profiles/GatheringProfile.h"  // Подключаем наш "чертеж"
-#include "core/Bot/Profiles/GrindingProfile.h"
+#include "core/Bot/BehaviorTree/Profiles/GatheringProfile.h"  // Подключаем наш "чертеж"
+#include "core/Bot/BehaviorTree/Profiles/GrindingProfile.h"
 #include <QObject>
 #include <QMap>
 #include <QMutex>

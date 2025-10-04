@@ -9,9 +9,9 @@
 #include "core/bot/CombatManager/CombatManager.h"
 #include "core/Bot/InteractionManager/InteractionManager.h"
 
-#include "core/Bot/Settings/BotSettings.h"       // <-- ДОБАВЛЕНО: нужен для BotStartSettings
-#include "core/Bot/Profiles/GatheringProfile.h"  // <-- ДОБАВЛЕНО: нужен для GatheringProfile
-#include "core/Bot/Profiles/GrindingProfile.h"   // потом убрать обьединив профили из за дублирования
+#include "core/Bot/Settings/BotSettings.h"                    // <-- ДОБАВЛЕНО: нужен для BotStartSettings
+#include "core/Bot/BehaviorTree/Profiles/GatheringProfile.h"  // <-- ДОБАВЛЕНО: нужен для GatheringProfile
+#include "core/Bot/BehaviorTree/Profiles/GrindingProfile.h"   // потом убрать обьединив профили из за дублирования
 
 #include "Shared/Utils/Vector.h"  // <-- ДОБАВЛЕНО: нужен для Vec3
 #include <memory>                 // <-- ДОБАВЛЕНО: нужен для std::shared_ptr
