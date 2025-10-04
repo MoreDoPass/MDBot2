@@ -10,9 +10,9 @@
 #include <stdexcept>
 #include <QDebug>
 
-#include "core/Bot/BehaviorTree/CombatBuilder.h"
-#include "core/Bot/Modules/OreGrindModule.h"
-#include "core/Bot/Modules/MobGrindModule.h"
+#include "core/BehaviorTree/BTContext.h"  // <-- ДОБАВЛЯЕМ ПОЛНОЕ ОПРЕДЕЛЕНИЕ
+#include "core/BehaviorTree/BTNode.h"
+#include "core/Bot/BehaviorTree/BehaviorTreeBuilder.h"
 
 Q_LOGGING_CATEGORY(logBot, "mdbot.bot")
 Q_LOGGING_CATEGORY(logBT, "mdbot.bot.bt")
@@ -236,29 +236,15 @@ void Bot::start(const BotStartSettings& settings, ProfileManager* profileManager
     m_btContext->profileManager = profileManager;
     m_btContext->settings = m_currentSettings;
 
-    std::unique_ptr<BTNode> combatTree = CombatBuilder::buildCombatLogic(*m_btContext);
-
-    if (m_currentSettings.activeModule == ModuleType::Gathering)
-    {
-        // Передаем в build теперь два аргумента, как он и требует.
-        m_behaviorTreeRoot = OreGrindModule::build(*m_btContext, std::move(combatTree));
-    }
-    else if (m_currentSettings.activeModule == ModuleType::Grinding)
-    {
-        // Подключаем наш новый модуль по той же схеме.
-        // Не забудьте добавить #include "core/Bot/Modules/MobGrindModule.h" в начало файла Bot.cpp
-        m_behaviorTreeRoot = MobGrindModule::build(*m_btContext, std::move(combatTree));
-    }
-    else
-    {
-        qCritical(logBot) << "Attempted to start with an unknown or unsupported module type.";
-        m_behaviorTreeRoot.reset();
-        // ВАЖНО: combatTree будет автоматически удален здесь, утечки памяти не будет.
-    }
+    // --- ФИНАЛЬНАЯ ВЕРСИЯ КОДА СБОРКИ ---
+    // Вся сложность по сборке дерева теперь полностью спрятана
+    // за фасадом BehaviorTreeBuilder. Bot.cpp стал идеальным.
+    qCInfo(logBot) << "Handing over control to BehaviorTreeBuilder to assemble the tree...";
+    m_behaviorTreeRoot = BehaviorTreeBuilder::build(*m_btContext);
 
     if (!m_behaviorTreeRoot)
     {
-        qCCritical(logBot) << "Failed to build Behavior Tree for the selected module.";
+        qCCritical(logBot) << "BehaviorTreeBuilder failed to create a behavior tree. Bot will not start.";
         return;
     }
 
